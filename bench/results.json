@@ -1,0 +1,260 @@
+{
+  "planck": {
+    "label": "Planck.js 1.5.0",
+    "stack": {
+      "topDriftMm": 2.981816372405492,
+      "topSagMm": -92.50137364075783,
+      "stands": true
+    },
+    "pyramid": {
+      "msPerSimSecond": 199.34144,
+      "topSagMm": -221.91521176545237,
+      "topDriftMm": 4.454591987074205,
+      "stands": true
+    },
+    "dominoes": {
+      "fallen": 30,
+      "inOrder": true,
+      "chainSeconds": 6.183333333333334
+    },
+    "seesaw": {
+      "ballPeakM": 5.260606355802705,
+      "ballPeakX": -4.47751502414572,
+      "ballEndX": -10.314075925881598
+    },
+    "bounce": {
+      "reboundM": 2.490065972222223,
+      "theoryM": 2.468,
+      "errorPct": 0.8940831532505338
+    },
+    "ice": {
+      "slidM": 5.949882831108534,
+      "theoryM": 5.900710245727465,
+      "errorPct": 0.8333333333334401
+    },
+    "determinism": {
+      "hash": "15ea024284c42540",
+      "repeatable": true
+    },
+    "sensitivity": {
+      "seesawPeakShiftMm": 6.3894539123161564,
+      "seesawLandingShiftMm": 1.1034815556829614,
+      "dominoChainShiftMs": 50.00000000000071
+    }
+  },
+  "rapier": {
+    "label": "Rapier 2D 0.21.0 (deterministic)",
+    "stack": {
+      "topDriftMm": 0.000003663065184511538,
+      "topSagMm": 30.509757995605735,
+      "stands": true
+    },
+    "pyramid": {
+      "msPerSimSecond": 30.923410000000057,
+      "topSagMm": 31.263351440429688,
+      "topDriftMm": 8.434753865003586,
+      "stands": true
+    },
+    "dominoes": {
+      "fallen": 30,
+      "inOrder": true,
+      "chainSeconds": 5.866666666666666
+    },
+    "seesaw": {
+      "ballPeakM": 5.613341331481934,
+      "ballPeakX": -4.775780200958252,
+      "ballEndX": -11.01632022857666
+    },
+    "bounce": {
+      "reboundM": 2.4594223499298096,
+      "theoryM": 2.468,
+      "errorPct": -0.34755470300609403
+    },
+    "ice": {
+      "slidM": 5.915946691579719,
+      "theoryM": 5.900710245727465,
+      "errorPct": 0.25821376101776666
+    },
+    "determinism": {
+      "hash": "aeb30806ce3d7eff",
+      "repeatable": true
+    },
+    "sensitivity": {
+      "seesawPeakShiftMm": 0.5612373352050781,
+      "seesawLandingShiftMm": 0.27179718017578125,
+      "dominoChainShiftMs": 0
+    }
+  },
+  "matter": {
+    "label": "Matter.js 0.20.0",
+    "stack": {
+      "topDriftMm": 0,
+      "topSagMm": 92.48662614711955,
+      "stands": false
+    },
+    "pyramid": {
+      "msPerSimSecond": 139.84039999999996,
+      "topSagMm": 265.3711277877129,
+      "topDriftMm": 11.244771523520471,
+      "stands": false
+    },
+    "dominoes": {
+      "fallen": 9,
+      "inOrder": true,
+      "chainSeconds": null
+    },
+    "seesaw": {
+      "ballPeakM": 4.011408248886999,
+      "ballPeakX": -1.8010698729143968,
+      "ballEndX": -2.336847420584422
+    },
+    "bounce": {
+      "reboundM": 2.304452726466505,
+      "theoryM": 2.468,
+      "errorPct": -6.626712866024913
+    },
+    "ice": {
+      "slidM": 0.21962980489015319,
+      "theoryM": 5.900710245727465,
+      "errorPct": -96.2779090017311
+    },
+    "determinism": {
+      "hash": "f76f00caa79934f8",
+      "repeatable": true
+    },
+    "sensitivity": {
+      "seesawPeakShiftMm": 0.21668926739781824,
+      "seesawLandingShiftMm": 193.90965917419888,
+      "dominoChainShiftMs": null
+    }
+  },
+  "box2d3": {
+    "label": "box2d3-wasm 5.2.0 (Box2D v3.1, deluxe: SIMD + threads)",
+    "stack": {
+      "topDriftMm": 7.959368638694286,
+      "topSagMm": 31.516599655151634,
+      "stands": true
+    },
+    "pyramid": {
+      "msPerSimSecond": 5.789120000000002,
+      "topSagMm": 31.507492065429688,
+      "topDriftMm": 3.735101316124201,
+      "stands": true
+    },
+    "dominoes": {
+      "fallen": 30,
+      "inOrder": true,
+      "chainSeconds": 6.116666666666666
+    },
+    "seesaw": {
+      "ballPeakM": 5.4165568351745605,
+      "ballPeakX": -4.92317533493042,
+      "ballEndX": -11.487317085266113
+    },
+    "bounce": {
+      "reboundM": 2.4594221115112305,
+      "theoryM": 2.468,
+      "errorPct": -0.34756436340232993
+    },
+    "ice": {
+      "slidM": 5.93796472081237,
+      "theoryM": 5.900710245727465,
+      "errorPct": 0.631355778092638
+    },
+    "determinism": {
+      "hash": "97df081f3b560589",
+      "repeatable": true
+    },
+    "sensitivity": {
+      "seesawPeakShiftMm": 7.638454437255859,
+      "seesawLandingShiftMm": 9.883880615234375,
+      "dominoChainShiftMs": 0
+    }
+  },
+  "box2d3c": {
+    "label": "box2d3-wasm 5.2.0 (Box2D v3.1, compat: no SIMD)",
+    "stack": {
+      "topDriftMm": 7.959368638694286,
+      "topSagMm": 31.516599655151634,
+      "stands": true
+    },
+    "pyramid": {
+      "msPerSimSecond": 7.591460000000007,
+      "topSagMm": 31.507492065429688,
+      "topDriftMm": 3.735101316124201,
+      "stands": true
+    },
+    "dominoes": {
+      "fallen": 30,
+      "inOrder": true,
+      "chainSeconds": 6.116666666666666
+    },
+    "seesaw": {
+      "ballPeakM": 5.4165568351745605,
+      "ballPeakX": -4.92317533493042,
+      "ballEndX": -11.487317085266113
+    },
+    "bounce": {
+      "reboundM": 2.4594221115112305,
+      "theoryM": 2.468,
+      "errorPct": -0.34756436340232993
+    },
+    "ice": {
+      "slidM": 5.93796472081237,
+      "theoryM": 5.900710245727465,
+      "errorPct": 0.631355778092638
+    },
+    "determinism": {
+      "hash": "97df081f3b560589",
+      "repeatable": true
+    },
+    "sensitivity": {
+      "seesawPeakShiftMm": 7.638454437255859,
+      "seesawLandingShiftMm": 9.883880615234375,
+      "dominoChainShiftMs": 0
+    }
+  },
+  "phaser": {
+    "label": "phaser-box2d 1.1.0 (Box2D v3.0 JS)",
+    "stack": {
+      "topDriftMm": 5.9566655672267,
+      "topSagMm": 31.54832672967567,
+      "stands": true
+    },
+    "pyramid": {
+      "msPerSimSecond": 36.959630000000104,
+      "topSagMm": 31.986503936909827,
+      "topDriftMm": 13.58845599192245,
+      "stands": true
+    },
+    "dominoes": {
+      "fallen": 30,
+      "inOrder": true,
+      "chainSeconds": 6.183333333333334
+    },
+    "seesaw": {
+      "ballPeakM": 5.57789396315158,
+      "ballPeakX": -5.0464027183931295,
+      "ballEndX": -11.676920114756596
+    },
+    "bounce": {
+      "reboundM": 0.19992897765962125,
+      "theoryM": 2.468,
+      "errorPct": -91.89915001379168
+    },
+    "ice": {
+      "slidM": 5.913507524481575,
+      "theoryM": 5.900710245727465,
+      "errorPct": 0.21687692194978836
+    },
+    "determinism": {
+      "hash": "526bb333cafabb54",
+      "repeatable": true
+    },
+    "sensitivity": {
+      "seesawPeakShiftMm": 3.5551150340209503,
+      "seesawLandingShiftMm": 0.882023085656769,
+      "dominoChainShiftMs": 0
+    }
+  }
+}

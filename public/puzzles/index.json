@@ -1,0 +1,54 @@
+{
+ "days": {
+  "2026-10-09": [
+   "easy:freeze",
+   "medium:time",
+   "hard:place"
+  ],
+  "2026-10-10": [
+   "easy:stop",
+   "medium:height",
+   "hard:time"
+  ],
+  "2026-10-11": [
+   "easy:dominoes",
+   "medium:freeze",
+   "hard:place"
+  ],
+  "2026-10-12": [
+   "easy:time",
+   "medium:stop",
+   "hard:height"
+  ],
+  "2026-10-13": [
+   "easy:freeze",
+   "medium:dominoes",
+   "hard:stop"
+  ],
+  "2026-10-14": [
+   "easy:height",
+   "medium:time",
+   "hard:place"
+  ],
+  "2026-10-15": [
+   "easy:stop",
+   "medium:dominoes",
+   "hard:height"
+  ],
+  "2026-10-16": [
+   "easy:freeze",
+   "medium:time",
+   "hard:place"
+  ],
+  "2026-10-17": [
+   "easy:stop",
+   "medium:height",
+   "hard:time"
+  ],
+  "2026-10-18": [
+   "easy:dominoes",
+   "medium:freeze",
+   "hard:place"
+  ]
+ }
+}

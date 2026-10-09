@@ -1,0 +1,15 @@
+{
+  "name": "predictle",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "@dimforge/rapier2d-deterministic-compat": "^0.21.0",
+    "box2d3-wasm": "^5.2.0",
+    "matter-js": "^0.20.0",
+    "phaser-box2d": "^1.1.0",
+    "planck": "^1.5.0"
+  }
+}
