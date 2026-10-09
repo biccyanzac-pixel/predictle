@@ -1,10 +1,10 @@
 # Predictle
 
-A daily physics-prediction game. Every day, three frozen contraptions: predict the outcome, watch it play out, score 0–100 for how close you were. Puzzles get harder through the week (Monday gentlest, Sunday hardest).
+A daily physics-prediction game. Every day, three contraptions generated from the date: watch the start, it freezes just before the tricky moment, tap where it will come to rest, then watch. Score 0–100 for how close you were. Rounds get harder through the day and through the week (Monday gentlest, Sunday hardest).
 
 Puzzles are simulated offline in Node (Box2D v3.1 via box2d3-wasm) and shipped as compressed recordings, so every player sees exactly the same outcome; the browser only plays them back. Part of the [jacob.gg](https://biccyanzac-pixel.github.io/jacob.gg/) daily games.
 
-**Status: [docs/status.md](docs/status.md).** Decisions: [engine](docs/engine-decision.md), [formats and scoring](docs/formats.md), [difficulty](docs/difficulty.md).
+**Status: [docs/status.md](docs/status.md).** Design: [game design, generation, difficulty, scoring](docs/game-design.md); [engine](docs/engine-decision.md).
 
 ## Run locally
 ```
@@ -15,8 +15,7 @@ cd worker && npm install && npm run db:init:local && npm run dev:local   # optio
 
 ## Generate puzzles
 ```
-node tools/gen/make-days.mjs --from 2026-10-09 --days 10   # -> public/puzzles/YYYY-MM-DD.prd
-node tools/gen/trial.mjs 20 stop                           # acceptance rates for a format
+node tools/gen/make-days.mjs --from 2026-10-09 --days 10   # -> public/puzzles/YYYY-MM-DD.prd (each day = f(date))
 ```
 
 ## Test

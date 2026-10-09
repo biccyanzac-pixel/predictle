@@ -25,6 +25,7 @@
 //   conveyor  {x1,x2,y,speed,t?}                       belt surface moves at speed (m/s, + = right)
 //   fan       {x1,y1,x2,y2,ax,ay}                      zone that accelerates bodies inside by (ax,ay) m/s^2
 //   buckets   {x1,x2,y,n,h,t?}                         n equal buckets with dividers, floor at y
+//   sand      {x1,x2,y,depth?}                         sandpit surface (top at y): things stop where they land
 //
 // Any component may carry frame: true (walls/floor: not counted as "touched") and
 // floor: true (the floor, for "when does it hit the floor" questions).
@@ -71,8 +72,10 @@ class Sim {
     this.world = B.b2CreateWorld(wd);
     wd.delete();
     // Learnable rules: ice is slippery and rubber bouncy whatever they touch.
-    B.b2World_SetFrictionCallback(this.world, (fa, _ma, fb) => Math.min(fa, fb));
-    B.b2World_SetRestitutionCallback(this.world, (ra, _ma, rb) => Math.max(ra, rb));
+    // Sand overrides both: full grip, no bounce.
+    const SAND_ID = BigInt(MATERIALS.sand.id);
+    B.b2World_SetFrictionCallback(this.world, (fa, ma, fb, mb) => (ma === SAND_ID || mb === SAND_ID ? 1 : Math.min(fa, fb)));
+    B.b2World_SetRestitutionCallback(this.world, (ra, ma, rb, mb) => (ma === SAND_ID || mb === SAND_ID ? 0 : Math.max(ra, rb)));
     const gd = B.b2DefaultBodyDef();
     this.ground = B.b2CreateBody(this.world, gd);
     gd.delete();
@@ -81,6 +84,7 @@ class Sim {
     this.statics = [];           // drawable static shapes
     this.decor = [];             // drawable decorations: fans, conveyors, pivots, ...
     this.fans = [];
+    this.sandpits = [];
   }
 
   vec(x, y) { return new this.B.b2Vec2(x, y); }
@@ -144,7 +148,8 @@ class Sim {
   }
 
   addDynamic(comp, kind, material, bodyId, shapes, extra = {}) {
-    this.dynamics.push({ id: bodyId, comp, kind, material, shapes, ...extra });
+    const baseAngularDamping = kind === "plank" ? 1.5 : kind === "pendulum" ? 0.3 : 0;
+    this.dynamics.push({ id: bodyId, comp, kind, material, shapes, baseAngularDamping, ...extra });
   }
 
   pin(body, x, y, { limit } = {}) {
@@ -179,8 +184,17 @@ class Sim {
   }
 
   make_block(c, i) {
-    const b = this.body({ dynamic: true, x: c.x, y: c.y, angle: c.angle ?? 0 });
-    this.addDynamic(i, "block", c.material ?? "wood", b, [this.addBox(b, i, c.material ?? "wood", c.hw, c.hh)]);
+    const b = this.body({ dynamic: true, x: c.x, y: c.y, angle: c.angle ?? 0, bullet: c.role === "main" });
+    if (c.vx || c.vy) { const v = this.vec(c.vx ?? 0, c.vy ?? 0); this.B.b2Body_SetLinearVelocity(b, v); v.delete(); }
+    this.addDynamic(i, "block", c.material ?? "wood", b, [this.addBox(b, i, c.material ?? "wood", c.hw, c.hh)], { role: c.role ?? null, label: c.label ?? null });
+  }
+
+  // Sandpit: a sand surface from x1 to x2 whose top is at y. Things that land in it stop.
+  make_sand(c, i) {
+    const depth = c.depth ?? 0.14;
+    const shape = this.addBox(this.ground, i, "sand", (c.x2 - c.x1) / 2, depth / 2, (c.x1 + c.x2) / 2, c.y - depth / 2);
+    this.statics.push({ ...shape, comp: i });
+    this.sandpits.push(c);
   }
 
   make_wall(c, i) { this.staticBar(i, c.x1, c.y1, c.x2, c.y2, c.t ?? 0.16, c.material ?? "wood"); }
@@ -316,6 +330,21 @@ class Sim {
     return out;
   }
 
+  // Drag inside sandpits (on top of the no-bounce, full-grip contact rules), so a
+  // body that lands in sand stops within a few centimetres instead of rolling on.
+  applySand() {
+    if (!this.sandpits.length) return;
+    const B = this.B;
+    for (const d of this.dynamics) {
+      const p = this.read(d.id);
+      const inside = this.sandpits.some((s) => p.x > s.x1 && p.x < s.x2 && p.y < s.y + 0.4 && p.y > s.y - 0.3);
+      if (inside === !!d.inSand) continue;
+      d.inSand = inside;
+      B.b2Body_SetLinearDamping(d.id, inside ? 6 : 0);
+      B.b2Body_SetAngularDamping(d.id, inside ? 6 : (d.baseAngularDamping ?? 0));
+    }
+  }
+
   applyFans() {
     if (!this.fans.length) return;
     const B = this.B;
@@ -370,6 +399,7 @@ class Sim {
     sample();
     while (step < maxSteps) {
       this.applyFans();
+      this.applySand();
       B.b2World_Step(this.world, dt, SUBSTEPS);
       step++;
       kickComp.push(null);

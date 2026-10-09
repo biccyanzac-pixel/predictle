@@ -3,17 +3,23 @@
 // so all three agree exactly. Changing a constant here changes scores for every
 // day: flag it to the owner first.
 //
-// All curves are a Gaussian of the error: 100 * exp(-(error / sigma)^2).
-// That gives ~100 for a near-miss, falls smoothly, and is 0-ish for a wild guess.
+// Distance (the main game): 0 only for the worst possible guess, see scoreDistance.
+// The other (older, unused) formats use a Gaussian of the error: 100 * exp(-(error / sigma)^2).
 
 const gauss = (err, sigma) => 100 * Math.exp(-((err / sigma) ** 2));
 
-/** Where does it stop? 2D distance, relative to world width.
- *  2% of width -> 99, 5% -> 93, 10% -> 73, 20% -> 29, 30% -> 6. */
-export const SIGMA_DISTANCE = 0.18;
-export function scoreDistance(guess, actual, worldWidth) {
+/** Where does it stop? Distance from the true spot, relative to the WORST possible guess
+ *  (the arena corner farthest from the true spot): score = 100 * (1 - d / dMax)^2.
+ *  So 0 only for the worst guess in the arena; a guess 5% of dMax away scores 90,
+ *  10% -> 81, 25% -> 56, 50% -> 25. 100 needs a near-exact tap (within ~0.3% of dMax). */
+export const DISTANCE_POWER = 2;
+export function maxDistance(actual, world) {
+  const xs = [0, world.width], ys = [0, world.height];
+  return Math.max(...xs.flatMap((x) => ys.map((y) => Math.hypot(x - actual.x, y - actual.y))));
+}
+export function scoreDistance(guess, actual, world) {
   const d = Math.hypot(guess.x - actual.x, guess.y - actual.y);
-  return gauss(d, SIGMA_DISTANCE * worldWidth);
+  return 100 * Math.max(0, 1 - d / maxDistance(actual, world)) ** DISTANCE_POWER;
 }
 
 /** How high? Vertical error relative to world height.
@@ -43,7 +49,7 @@ export function scorePuzzle(puzzle, guess) {
     case "stop":
     case "freeze":
       if (!finite(guess.x) || !finite(guess.y)) return 0;
-      return scoreDistance(guess, answer.final, world.width);
+      return scoreDistance(guess, answer.final, world);
     case "height":
       if (!finite(guess.y)) return 0;
       return scoreHeight(guess.y, answer.peak, world.height);
@@ -56,7 +62,7 @@ export function scorePuzzle(puzzle, guess) {
     case "place": {
       const v = answer.finals[guess.choice];
       if (!v) return 0;
-      return scoreDistance(v, answer.target, world.width);
+      return scoreDistance(v, answer.target, world);
     }
     default:
       return 0;

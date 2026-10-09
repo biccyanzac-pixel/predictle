@@ -4,13 +4,18 @@ import { scoreDistance, scoreHeight, scoreCount, scoreTime, scorePuzzle, emoji }
 
 const near = (a, b, tol = 0.6) => assert.ok(Math.abs(a - b) <= tol, `${a} vs ${b}`);
 
-test("distance score: exact 100, smooth fall-off relative to world width", () => {
-  near(scoreDistance({ x: 3, y: 1 }, { x: 3, y: 1 }, 9), 100, 1e-9);
-  near(scoreDistance({ x: 0, y: 0 }, { x: 0.45, y: 0 }, 9), 92.6); // 5% of width
-  near(scoreDistance({ x: 0, y: 0 }, { x: 0.9, y: 0 }, 9), 73.4);  // 10%
-  near(scoreDistance({ x: 0, y: 0 }, { x: 1.8, y: 0 }, 9), 29.1);  // 20%
-  // same relative miss -> same score in a bigger world
-  near(scoreDistance({ x: 0, y: 0 }, { x: 1.05, y: 0 }, 10.5), scoreDistance({ x: 0, y: 0 }, { x: 0.75, y: 0 }, 7.5), 1e-9);
+test("distance score: 0 only for the worst possible guess, 100 only for (nearly) exact", () => {
+  const world = { width: 9, height: 12 };
+  const actual = { x: 2, y: 1 };                       // farthest corner is (9, 12): dMax = hypot(7, 11)
+  const dMax = Math.hypot(7, 11);
+  near(scoreDistance(actual, actual, world), 100, 1e-9);
+  near(scoreDistance({ x: 9, y: 12 }, actual, world), 0, 1e-9);
+  near(scoreDistance({ x: 2 + 0.05 * dMax, y: 1 }, actual, world), 90.25, 0.01);
+  near(scoreDistance({ x: 2 + 0.25 * dMax, y: 1 }, actual, world), 56.25, 0.01);
+  near(scoreDistance({ x: 2 + 0.5 * dMax, y: 1 }, actual, world), 25, 0.01);
+  // a typical miss of a metre or two still scores well; rounding to 100 needs ~4 cm
+  assert.ok(scoreDistance({ x: 3.5, y: 1 }, actual, world) > 75);
+  assert.ok(Math.round(scoreDistance({ x: 2.1, y: 1 }, actual, world)) < 100);
 });
 
 test("height, count and time scores", () => {
@@ -27,7 +32,7 @@ test("scorePuzzle per format, and junk guesses score 0", () => {
   const W = { width: 9, height: 12 };
   assert.equal(scorePuzzle({ format: "stop", world: W, answer: { final: { x: 1, y: 2 } } }, { x: 1, y: 2 }), 100);
   assert.equal(scorePuzzle({ format: "dominoes", world: W, answer: { fallen: 3, total: 7 } }, { n: 3 }), 100);
-  assert.equal(scorePuzzle({ format: "place", world: W, answer: { finals: [{ x: 0, y: 0 }, { x: 5, y: 0 }], target: { x: 5, y: 0 } } }, { choice: 1 }), 100);
+  assert.equal(scorePuzzle({ format: "freeze", world: W, answer: { final: { x: 1, y: 2 } } }, { x: 1, y: 2 }), 100);
   assert.equal(scorePuzzle({ format: "place", world: W, answer: { finals: [{ x: 0, y: 0 }], target: { x: 5, y: 0 } } }, { choice: 7 }), 0);
   assert.equal(scorePuzzle({ format: "stop", world: W, answer: { final: { x: 1, y: 2 } } }, { x: "1", y: 2 }), 0);
   assert.equal(scorePuzzle({ format: "time", world: W, answer: { seconds: 3 } }, null), 0);
