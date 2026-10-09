@@ -7,20 +7,29 @@
 //   round  {t:"round", x,y,r}                      a mirrored post
 //   arc    {t:"arc", x,y,r, mx,my, cosHalf, pts}  part of a circle: points p with
 //                                                  dot((p-c)/r, m) >= cosHalf; pts for drawing
-//   tri    {t:"tri", pts:[[x,y],[x,y],[x,y]]}      a mirrored triangle
+//   tri    {t:"tri", pts:[[x,y]x3]}               a mirrored triangle
+//   square {t:"square", pts:[[x,y]x4]}            a mirrored square
+//   vee    {t:"vee", pts:[[x,y]x3]}               two mirrors joined in a V (open)
+//   block  {t:"block", pts:[[x,y]x4]}             a dark block that ABSORBS the beam (never hit by
+//                                                 a generated puzzle's beam: it's there to block and mislead)
 // Only deterministic maths (shared/dmath.js), so every browser traces the same beam.
 import { makeRng } from "./rng.js";
 import { sin, cos, hypot, PI } from "../shared/dmath.js";
 import { scoreWall, perimeterPos } from "../shared/scoring.js";
 import { weekdayOf } from "../shared/daily.js";
 
-export const MAX_ATTEMPTS = 2000;
+export const MAX_ATTEMPTS = 20000;
 const EPS = 1e-9;
 
 /** Bonus difficulty: 0.3 (Mon) .. 0.9 (Sun). */
 export const laserLevel = (date) => 0.3 + 0.1 * weekdayOf(date);
 
-const segments = (m) => (m.t === "flat" ? [[m.x1, m.y1, m.x2, m.y2]] : m.t === "tri" ? m.pts.map((p, i) => [...p, ...m.pts[(i + 1) % 3]]) : []);
+function segments(m) {
+  if (m.t === "flat") return [[m.x1, m.y1, m.x2, m.y2]];
+  if (m.t === "tri" || m.t === "square" || m.t === "block") return m.pts.map((p, i) => [...p, ...m.pts[(i + 1) % m.pts.length]]);
+  if (m.t === "vee") return [[...m.pts[0], ...m.pts[1]], [...m.pts[1], ...m.pts[2]]];
+  return [];
+}
 
 /** Nearest hit of ray o + t d (t > EPS) with one mirror: { t, nx, ny, edge } or null. */
 function hitMirror(o, d, m) {
@@ -72,6 +81,7 @@ export function trace(world, emitter, mirrors, maxBounces = 24) {
     }
     o = { x: o.x + best.t * d.x, y: o.y + best.t * d.y };
     path.push([o.x, o.y]);
+    if (mirrors[which].t === "block") return { fail: "hits a blocker", path };
     hits.push(which);
     const dn = d.x * best.nx + d.y * best.ny;
     minCos = Math.min(minCos, Math.abs(dn));
@@ -85,13 +95,19 @@ export function trace(world, emitter, mirrors, maxBounces = 24) {
 
 function boundsOf(m) {
   if (m.t === "flat") return [Math.min(m.x1, m.x2), Math.min(m.y1, m.y2), Math.max(m.x1, m.x2), Math.max(m.y1, m.y2)];
-  if (m.t === "tri") { const xs = m.pts.map((p) => p[0]), ys = m.pts.map((p) => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
+  if (m.pts && m.t !== "arc") { const xs = m.pts.map((p) => p[0]), ys = m.pts.map((p) => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
   return [m.x - m.r, m.y - m.r, m.x + m.r, m.y + m.r];
 }
 const overlap = (a, b, g) => a[0] < b[2] + g && b[0] < a[2] + g && a[1] < b[3] + g && b[1] < a[3] + g;
 
-function makeMirror(rng, x, y, a) {
-  const type = rng.weighted({ flat: 3, round: 2.5, arc: 3, tri: 2 });
+function polygon(x, y, a, size, n, jitter, rng) {
+  const pts = [];
+  for (let j = 0; j < n; j++) { const t = a + (2 * PI * j) / n + (jitter ? rng.float(-jitter, jitter) : 0); pts.push([x + size * cos(t), y + size * sin(t)]); }
+  return pts;
+}
+
+function makeMirror(rng, x, y, a, decoy = false) {
+  const type = rng.weighted({ flat: 3, round: 2.2, arc: 2.6, tri: 1.6, square: 1.4, vee: 1.6, block: decoy ? 2.5 : 0 });
   if (type === "flat") {
     const h = rng.float(0.4, 1.2);
     return { t: "flat", x1: x - h * cos(a), y1: y - h * sin(a), x2: x + h * cos(a), y2: y + h * sin(a) };
@@ -104,9 +120,12 @@ function makeMirror(rng, x, y, a) {
     for (let j = 0; j <= 16; j++) { const t = a - half + (2 * half * j) / 16; pts.push([cx + r * cos(t), cy + r * sin(t)]); }
     return { t: "arc", x: cx, y: cy, r, mx: cos(a), my: sin(a), cosHalf: cos(half), pts };
   }
-  const sz = rng.float(0.35, 0.75), pts = [];
-  for (let j = 0; j < 3; j++) { const t = a + (2 * PI * j) / 3 + rng.float(-0.25, 0.25); pts.push([x + sz * cos(t), y + sz * sin(t)]); }
-  return { t: "tri", pts };
+  if (type === "tri") return { t: "tri", pts: polygon(x, y, a, rng.float(0.35, 0.75), 3, 0.25, rng) };
+  if (type === "square") return { t: "square", pts: polygon(x, y, a, rng.float(0.3, 0.6), 4, 0, rng) };
+  if (type === "block") return { t: "block", pts: polygon(x, y, a, rng.float(0.3, 0.7), 4, 0, rng) };
+  // vee: two arms from a corner at (x, y)
+  const L1 = rng.float(0.45, 0.9), L2 = rng.float(0.45, 0.9), open = rng.float(0.6, 1.6);
+  return { t: "vee", pts: [[x + L1 * cos(a - open / 2), y + L1 * sin(a - open / 2)], [x, y], [x + L2 * cos(a + open / 2), y + L2 * sin(a + open / 2)]] };
 }
 
 function build(rng, level) {
@@ -123,7 +142,7 @@ function build(rng, level) {
     return !mirrors.some((o) => overlap(boundsOf(o), b, 0.25));
   };
   // Mirrors on the beam: trace, put a mirror somewhere on the last stretch, trace again.
-  const onPath = Math.round(3 + 3 * level) + rng.int(0, 2);
+  const onPath = Math.round(5 + 4 * level) + rng.int(0, 2);
   for (let k = 0; k < onPath; k++) {
     const tr = trace(world, emitter, mirrors);
     if (tr.fail) break;
@@ -131,13 +150,13 @@ function build(rng, level) {
     for (let attempt = 0; attempt < 8; attempt++) {
       const u = rng.float(0.25, 0.8), x = ax + (bx - ax) * u, y = ay + (by - ay) * u;
       const m = makeMirror(rng, x, y, rng.float(0, 2 * PI));
-      if (fits(m)) { mirrors.push(m); break; }
+      if (m.t !== "block" && fits(m)) { mirrors.push(m); break; }
     }
   }
   // Decoys anywhere free.
-  const decoys = rng.int(1, 2 + Math.round(2 * level));
+  const decoys = rng.int(4, 6 + Math.round(4 * level));
   for (let k = 0; k < decoys * 6 && decoys > 0; k++) {
-    const m = makeMirror(rng, rng.float(0.9, W - 0.9), rng.float(0.9, H - 0.9), rng.float(0, 2 * PI));
+    const m = makeMirror(rng, rng.float(0.9, W - 0.9), rng.float(0.9, H - 0.9), rng.float(0, 2 * PI), true);
     if (fits(m)) { mirrors.push(m); if (mirrors.length >= onPath + decoys) break; }
   }
   return { world, emitter, mirrors };
@@ -148,9 +167,9 @@ function check(p, level) {
   const W = world.width, H = world.height, P = 2 * (W + H);
   const tr = trace(world, emitter, mirrors);
   if (tr.fail) return { ok: false, reason: tr.fail };
-  const minBounces = 3 + Math.round(level * 3);
+  const minBounces = 4 + Math.round(level * 3);
   if (tr.hits.length < minBounces) return { ok: false, reason: "too few reflections" };
-  if (tr.hits.length > 12) return { ok: false, reason: "too many reflections" };
+  if (tr.hits.length > 16) return { ok: false, reason: "too many reflections" };
   if (new Set(tr.hits).size < Math.min(3, minBounces)) return { ok: false, reason: "too few different mirrors" };
   if (tr.minCos < 0.12) return { ok: false, reason: "a grazing reflection" };
   if (tr.minEdge < 0.08) return { ok: false, reason: "clips a mirror's edge" };
@@ -170,6 +189,7 @@ function check(p, level) {
 
   // Not obvious: "straight on to the wall" and "one reflection then straight" must miss.
   const straight = trace(world, emitter, []).wall;
+  void straight;
   const oneBounce = trace(world, emitter, mirrors, 1);
   const firstOnly = oneBounce.fail ? straight : oneBounce.wall;
   const naive = Math.max(scoreWall(straight, tr.wall, world), scoreWall(firstOnly, tr.wall, world));

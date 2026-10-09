@@ -28,6 +28,7 @@
 //   sand      {x1,x2,y,depth?}                         sandpit surface (top at y): things stop where they land
 //   spinner   {x,y,arm,arms,speed,material?}           paddles turning at constant speed (rad/s, + = anticlockwise)
 //   funnel    {x,y,gap,w,h,material?}                  V of two ramps; (x,y) = centre of the gap at the bottom
+//   lowgrav   {x1,y1,x2,y2,g}                          zone where gravity is g times normal (0 < g < 1)
 //
 // Any component may carry frame: true (walls/floor: not counted as "touched") and
 // floor: true (the floor, for "when does it hit the floor" questions).
@@ -320,6 +321,13 @@ class Sim {
     this.staticBar(i, c.x + c.gap / 2, c.y, c.x + c.gap / 2 + c.w, c.y + c.h, t, m);
   }
 
+  // Low-gravity zone: inside it, gravity is c.g times normal (an upward push of
+  // m * 10 * (1 - g), applied exactly like a fan's).
+  make_lowgrav(c, i) {
+    this.fans.push({ x1: c.x1, y1: c.y1, x2: c.x2, y2: c.y2, ax: 0, ay: 10 * (1 - c.g) });
+    this.decor.push({ t: "lowgrav", x1: c.x1, y1: c.y1, x2: c.x2, y2: c.y2, g: c.g, comp: i });
+  }
+
   make_fan(c, i) {
     this.fans.push(c);
     this.decor.push({ t: "fan", ...c, comp: i });
@@ -371,6 +379,7 @@ class Sim {
     const B = this.B;
     for (const d of this.dynamics) {
       const p = this.read(d.id);
+      if (d.kind === "spinner") continue;
       for (const f of this.fans) {
         if (p.x < f.x1 || p.x > f.x2 || p.y < f.y1 || p.y > f.y2) continue;
         const m = B.b2Body_GetMass(d.id);

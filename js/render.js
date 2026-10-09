@@ -143,6 +143,24 @@ export class Renderer {
         ctx.lineTo(cx + ux * a - (ux - uy) * 0.08, cy + uy * a - (uy + ux) * 0.08);
         ctx.stroke();
       }
+    } else if (d.t === "lowgrav") {
+      // purple zone with bubbles drifting slowly upwards, labelled with its gravity
+      ctx.fillStyle = "rgba(140, 80, 255, 0.10)";
+      ctx.strokeStyle = "rgba(120, 60, 230, 0.6)";
+      ctx.setLineDash([3 * px, 4 * px]);
+      ctx.lineWidth = 1.5 * px;
+      ctx.fillRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+      ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+      ctx.setLineDash([]);
+      const w = d.x2 - d.x1, h = d.y2 - d.y1;
+      ctx.fillStyle = "rgba(120, 60, 230, 0.35)";
+      for (let k = 0; k < 14; k++) {
+        const fx = ((k * 0.618) % 1), fy = (((k * 0.377) + time * 0.08 * (1 + (k % 3))) % 1);
+        ctx.beginPath(); ctx.arc(d.x1 + fx * w, d.y1 + fy * h, 0.03 + 0.02 * (k % 3), 0, 7); ctx.fill();
+      }
+      ctx.save(); ctx.translate(d.x1 + 0.12, d.y2 - 0.32); ctx.scale(1, -1);
+      ctx.fillStyle = "rgba(100, 40, 210, 0.85)"; ctx.font = `600 ${0.24}px system-ui, sans-serif`;
+      ctx.fillText(`gravity ×${d.g.toFixed(1)}`, 0, 0); ctx.restore();
     } else if (d.t === "conveyor") {
       // chevrons sliding along the belt at its speed
       ctx.strokeStyle = "rgba(255,255,255,0.85)";
@@ -214,13 +232,13 @@ export class Renderer {
     ctx.fillStyle = getComputedStyle(this.canvas).getPropertyValue("--sky") || "#fff";
     ctx.fillRect(0, 0, meta.world.width, meta.world.height);
 
-    for (const d of meta.decor) if (d.t === "fan" || d.t === "chute") this.drawDecor(d, time);
+    for (const d of meta.decor) if (d.t === "fan" || d.t === "chute" || d.t === "lowgrav") this.drawDecor(d, time);
     for (const d of meta.decor) if (d.t === "spring") {
       const k = meta.bodies.findIndex((b) => b.comp === d.comp);
       this.drawSpringCoil(d, poseAt(motion.bodies[k], frame).y);
     }
     for (const s of meta.statics) this.drawShape(s);
-    for (const d of meta.decor) if (d.t !== "fan" && d.t !== "chute") this.drawDecor(d, time);
+    for (const d of meta.decor) if (d.t !== "fan" && d.t !== "chute" && d.t !== "lowgrav") this.drawDecor(d, time);
 
     meta.bodies.forEach((b, k) => {
       const p = poseAt(motion.bodies[k], frame);
