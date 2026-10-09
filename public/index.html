@@ -2,130 +2,184 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Predictle</title>
-  <meta name="description" content="A daily physics prediction game: three contraptions, predict the outcome, watch it play out.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f8f7a'/%3E%3Cpath d='M6 12 L18 17' stroke='%23fff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='9' cy='8' r='3.5' fill='%23ffd166'/%3E%3Ccircle cx='23' cy='24' r='3.5' fill='none' stroke='%23fff' stroke-width='2' stroke-dasharray='2 2'/%3E%3C/svg%3E">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daily — predictle</title>
+  <meta name="description" content="A daily physics prediction game. Watch the start, it freezes, tap where it will come to rest.">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%237c8cff'/%3E%3C/svg%3E">
   <style>
+    /* Same look as ridd-le (jacob.gg daily games). */
     :root {
-      --bg: #fbf7f0; --surface: #ffffff; --ink: #14213d; --muted: #55607a; --border: #ddd5c6;
-      --accent: #0f8f7a; --accent-ink: #ffffff; --sky: #fffdf8; --letterbox: #efe8db;
-      --easy: #1a7f37; --medium: #b58105; --hard: #c2410c;
-      --shadow: 0 1px 0 rgba(20,33,61,.05), 0 10px 24px -18px rgba(20,33,61,.4);
+      color-scheme: dark light;
+      --bg: #0b0c10; --bg-glow: #15171f; --surface: #14161d; --surface-2: #1b1e27; --border: #272b36;
+      --text: #edeef2; --muted: #9aa0ae; --accent: #7c8cff; --accent-soft: #232842;
+      --good: #57d9a3; --bad: #ff7a7a; --warning: #c77b2b; --radius: 16px;
+      --shadow: 0 18px 40px -24px rgb(0 0 0 / 0.8);
+      --sky: #f7f6f1; --letterbox: #1b1e27;
     }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #0f1424; --surface: #1a2135; --ink: #f4f1ea; --muted: #b6bed0; --border: #2c3550;
-        --accent: #4fd1b5; --accent-ink: #0b1220; --sky: #e9eef6; --letterbox: #0b0f1c;
-        --easy: #4cc26b; --medium: #f0c040; --hard: #ff8a4c; --shadow: 0 18px 40px -24px rgba(0,0,0,.8);
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f6f7fb; --bg-glow: #e9ebf6; --surface: #ffffff; --surface-2: #f2f3f8; --border: #e0e3ee;
+        --text: #15171f; --muted: #61687a; --accent: #4b5bdc; --accent-soft: #e8ebff; --good: #1f9d6b; --bad: #c93f3f;
+        --shadow: 0 18px 40px -28px rgb(20 22 40 / 0.35);
+        --sky: #fffdf8; --letterbox: #eef0f6;
       }
     }
-    :root[data-theme="dark"] {
-      --bg: #0f1424; --surface: #1a2135; --ink: #f4f1ea; --muted: #b6bed0; --border: #2c3550;
-      --accent: #4fd1b5; --accent-ink: #0b1220; --sky: #e9eef6; --letterbox: #0b0f1c;
-      --easy: #4cc26b; --medium: #f0c040; --hard: #ff8a4c; --shadow: 0 18px 40px -24px rgba(0,0,0,.8);
-    }
     * { box-sizing: border-box; }
-    html { -webkit-text-size-adjust: 100%; }
-    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    header { max-width: 600px; margin: 0 auto; padding: 14px 16px 0; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-    header h1 { font: 700 1.6rem/1 Georgia, "Times New Roman", serif; margin: 0; }
-    header h1 a { color: inherit; text-decoration: none; }
-    #date { color: var(--muted); font-size: .95rem; }
-    .legend { max-width: 600px; margin: 8px auto 0; padding: 0 16px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .85rem; color: var(--muted); }
-    .legend span { display: inline-flex; align-items: center; gap: 5px; }
-    .legend canvas { width: 18px; height: 18px; border-radius: 4px; }
-    .legend small { opacity: .8; }
-    main { max-width: 600px; margin: 0 auto; padding: 10px 16px 40px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
-    h2 { font: 700 1.35rem/1.25 Georgia, serif; margin: 0 0 8px; }
-    h3 { margin: 0 0 8px; font-size: 1.05rem; }
-    .muted { color: var(--muted); }
-    .plan { padding-left: 1.3em; }
-    button, input, select, output { font: inherit; }
-    button {
-      min-height: 46px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--border);
-      background: var(--surface); color: var(--ink); cursor: pointer; touch-action: manipulation;
+    body {
+      margin: 0; min-height: 100vh;
+      background: radial-gradient(900px 500px at 50% -10%, var(--bg-glow), transparent 70%), var(--bg);
+      color: var(--text);
+      font: 400 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
     }
-    button:disabled { opacity: .45; cursor: default; }
-    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
-    button.big { min-height: 54px; padding: 0 28px; font-size: 1.1rem; }
-    button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-    .puzzle-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
-    .step { font-weight: 650; }
-    .slot { text-transform: capitalize; font-weight: 650; padding: 2px 10px; border-radius: 999px; border: 1.5px solid currentColor; }
-    .slot.easy { color: var(--easy); } .slot.medium { color: var(--medium); } .slot.hard { color: var(--hard); }
-    .fmt { color: var(--muted); }
-    .question { font-size: 1.1rem; font-weight: 600; margin: 8px 0; min-height: 1.5em; }
-    .stage { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 68vh; margin: 0 auto; }
+    .shell { width: 100%; max-width: 42rem; margin: 0 auto; padding: 3rem 16px 4rem; display: flex; flex-direction: column; gap: 1.25rem; }
+    .masthead { text-align: center; }
+    .wordmark { font-size: 1.05rem; font-weight: 650; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
+    .wordmark span { color: var(--accent); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; }
+    .card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .eyebrow { margin: 0; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+    #daynum { color: var(--accent); }
+    .countdown { font-variant-numeric: tabular-nums; }
+    .challenge-label { margin-bottom: 0.35rem; }
+    .prompt { margin: 0; font-size: clamp(1.5rem, 5vw, 2rem); line-height: 1.2; font-weight: 650; letter-spacing: -0.02em; text-wrap: balance; }
+    .riddle-note { margin: 0.5rem 0 0; font-size: 0.88rem; color: var(--muted); }
+    .attempts-note { margin: 0.4rem 0 0; font-size: 0.82rem; font-weight: 600; color: var(--accent); }
+    .bonus-teaser { margin: 0.4rem 0 0; font-size: 0.82rem; color: var(--muted); }
+    .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0.9rem 0 0; font-size: .8rem; color: var(--muted); }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend canvas { width: 16px; height: 16px; border-radius: 4px; }
+    .legend small { opacity: .8; }
+    .late-badge { font-size: 0.7rem; font-weight: 600; text-transform: none; letter-spacing: normal; color: var(--warning);
+      background: color-mix(in srgb, var(--warning) 15%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+      border-radius: 999px; padding: 0.15rem 0.6rem; }
+    .play { display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem; }
+    .field { display: flex; flex-direction: column; gap: 0.4rem; }
+    .label { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    input[type="text"] { width: 100%; padding: 0.7rem 0.85rem; font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
+    input[type="text"]:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .playing-as { margin: 0; font-size: 0.82rem; color: var(--muted); }
+    .submit, .play-bonus-button, .archive-browse {
+      padding: 0.85rem 1rem; font: inherit; font-weight: 650; letter-spacing: 0.02em; color: #fff; background: var(--accent);
+      border: 0; border-radius: 10px; cursor: pointer; transition: filter .15s ease, opacity .15s ease; }
+    .submit:hover:not(:disabled), .play-bonus-button:hover, .archive-browse:hover { filter: brightness(1.08); }
+    .submit:disabled { opacity: 0.45; cursor: default; }
+    .ghost { padding: 0.6rem 0.9rem; font: inherit; font-weight: 600; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+    .ghost:disabled { opacity: .45; cursor: default; }
+    .fineprint { margin: 0; font-size: 0.78rem; color: var(--muted); text-align: center; }
+    .error { margin: 0; color: var(--bad); font-size: .9rem; }
+    /* the game stage */
+    .round-head { display: flex; align-items: center; gap: .6rem; margin: 1.25rem 0 .5rem; }
+    .pill { font-size: .72rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; padding: .15rem .6rem; border-radius: 999px; border: 1px solid currentColor; }
+    .pill.easy { color: var(--good); } .pill.hard { color: var(--bad); } .pill.bonus { color: var(--accent); }
+    .question { margin: 0 0 .6rem; font-weight: 600; }
+    .stage { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 72vh; margin: 0 auto; }
     canvas.view { width: 100%; height: 100%; display: block; border-radius: 12px; touch-action: none; cursor: crosshair; }
-    .slowmo { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(15,143,122,.92); color: #fff; padding: 4px 12px; border-radius: 999px; font-weight: 650; font-size: .85rem; white-space: nowrap; pointer-events: none; }
-    .skip { position: absolute; right: 10px; bottom: 10px; min-height: 40px; background: rgba(20,33,61,.82); color: #fff; border: 0; font-weight: 650; }
-    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
-    .readout { flex: 1 1 140px; color: var(--muted); font-size: .95rem; }
-    .stepper { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; }
-    .stepper button { width: 52px; font-size: 1.4rem; padding: 0; }
-    .count { font-size: 1.6rem; font-weight: 700; min-width: 2.2em; text-align: center; font-variant-numeric: tabular-nums; }
-    .slider { display: flex; align-items: center; gap: 10px; flex: 1 1 100%; }
-    .slider input { flex: 1; min-height: 40px; accent-color: var(--accent); }
-    .stopwatch { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .result { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; margin-top: 10px; }
-    .score { font-size: 1.5rem; }
-    .big-num { font-size: 2.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .of { color: var(--muted); }
-    .scores { list-style: none; padding: 0; margin: 10px 0; }
-    .scores li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
-    .share { background: var(--bg); border-radius: 10px; padding: 10px; white-space: pre-wrap; font-size: .95rem; }
-    .board input { flex: 1 1 160px; min-height: 46px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); }
-    .ranks { list-style: none; padding: 0; margin: 8px 0 0; }
-    .ranks li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
-    .ranks li.you { font-weight: 700; }
-    .dev { font-size: .85rem; } .dev a { color: var(--accent); margin-right: 6px; }
-    .head-meta { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: .95rem; }
-    #daynum { font-weight: 700; color: var(--ink); }
-    #countdown { font-variant-numeric: tabular-nums; }
-    .icon-btn { min-height: 36px; width: 36px; padding: 0; border-radius: 999px; font-weight: 700; }
-    .banner { background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; padding: 8px 12px; font-size: .92rem; }
-    .banner a, .archive a, .card a { color: var(--accent); }
-    .slot.bonus { color: #d6336c; }
-    .bonus-cta { background: var(--bg); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
-    .bonus-cta p { margin: 0 0 10px; }
-    #side { max-width: 600px; margin: 0 auto; padding: 0 16px 24px; }
-    .board h4 { margin: 14px 0 0; font-size: .95rem; }
-    .small { font-size: .85rem; }
-    .days { list-style: none; padding: 0; margin: 6px 0 10px; }
-    .days li a { display: flex; justify-content: space-between; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--ink); }
-    .days li.current a { font-weight: 700; }
-    dialog { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 18px 20px; }
-    dialog::backdrop { background: rgba(10, 14, 25, .5); }
-    dialog h2 { margin-top: 0; }
-    dialog ul { padding-left: 1.2em; }
-    footer { text-align: center; color: var(--muted); font-size: .85rem; padding-bottom: 24px; }
-    footer a { color: inherit; }
+    .slowmo { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: color-mix(in srgb, var(--accent) 90%, black); color: #fff; padding: 4px 12px; border-radius: 999px; font-weight: 650; font-size: .8rem; white-space: nowrap; pointer-events: none; }
+    .skip { position: absolute; right: 10px; bottom: 10px; padding: .45rem .8rem; background: rgba(11,12,16,.82); color: #fff; border: 0; border-radius: 999px; font: inherit; font-weight: 650; font-size: .85rem; cursor: pointer; }
+    .controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0 0; }
+    .controls .submit { flex: 1 1 auto; }
+    .readout { flex: 1 1 100%; color: var(--muted); font-size: .88rem; }
+    /* scores */
+    .attempts { margin-top: 1.5rem; }
+    .score { margin: 0.15rem 0 0; font-size: clamp(3.75rem, 18vw, 5.5rem); line-height: 1; font-weight: 700; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; color: var(--accent); }
+    .score small { font-size: .35em; letter-spacing: 0; color: var(--muted); font-weight: 600; }
+    .attempt-list { list-style: none; margin: 1.1rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+    .attempt-list li { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .65rem .85rem; background: var(--surface-2); border-radius: 10px; }
+    .attempt-list b { font-variant-numeric: tabular-nums; }
+    .round-result { display: flex; align-items: baseline; gap: .75rem; margin: .9rem 0 0; }
+    .round-result .num { font-size: 2.6rem; font-weight: 700; letter-spacing: -0.03em; color: var(--accent); font-variant-numeric: tabular-nums; }
+    .round-result p { margin: 0; color: var(--muted); font-size: .92rem; }
+    .share { margin: 1rem 0 0; padding: .75rem 1rem; background: var(--surface-2); border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; white-space: pre-wrap; font: .92rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .play-bonus-button { display: block; width: 100%; margin: .75rem 0 0; }
+    .bonus-note, .archive-note { margin: 0.5rem 0 1rem; color: var(--muted); font-size: 0.9rem; }
+    .bonus-locked, .board-locked { margin: 0.5rem 0 0; padding: 0.7rem 0.9rem; font-size: 0.88rem; color: var(--muted); background: var(--surface-2); border-radius: 10px; }
+    .bonus-board { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+    /* leaderboards (same rows as ridd-le) */
+    .rows { list-style: none; margin: 0; padding: 0; }
+    .row { display: grid; grid-template-columns: 1.75rem minmax(0, 1fr) auto; align-items: center; gap: .75rem; padding: .6rem .65rem; border-radius: 10px; border-top: 1px solid var(--border); }
+    .row:first-child { border-top: 0; }
+    .row.me { background: var(--accent-soft); border-top-color: transparent; }
+    .row-rank { font-size: .85rem; font-weight: 650; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .row.me .row-rank { color: var(--accent); }
+    .row-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-sub { font-size: .85rem; color: var(--muted); }
+    .row-score { font-weight: 680; font-variant-numeric: tabular-nums; }
+    .board-empty { margin: 0; color: var(--muted); font-size: 0.92rem; }
+    .archive-boards { display: grid; grid-template-columns: 1fr; gap: 1.5rem; margin-top: 1.25rem; }
+    @media (min-width: 640px) { .archive-boards { grid-template-columns: 1fr 1fr; } }
+    .archive-boards .rows { margin-top: .5rem; }
+    h4.eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+    /* archive dropdown */
+    .archive-picker { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .archive-browse { padding: 0.5rem 1rem; border-radius: 0.5rem; }
+    .archive-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; max-height: 16rem; overflow-y: auto; }
+    .archive-list-item { width: 100%; display: flex; flex-direction: column; gap: 0.15rem; text-align: left; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.6rem 0.8rem; text-decoration: none; }
+    .archive-list-item:hover, .archive-list-item.current { border-color: var(--accent); }
+    .archive-list-day { font-size: 0.8rem; font-weight: 700; color: var(--accent); }
+    .archive-list-prompt { font-size: 0.9rem; color: var(--muted); }
+    .yesterday-rows { margin-top: .5rem; }
+    .yesterday-best { margin-top: 1.1rem; padding-top: .9rem; border-top: 1px dashed var(--border); }
+    .card a { color: var(--accent); }
+    .footer { text-align: center; }
+    .footer p { margin: 0; font-size: 0.8rem; color: var(--muted); }
+    .footer a { color: inherit; }
   </style>
 </head>
 <body>
-  <header>
-    <h1><a href="./">Predictle</a></h1>
-    <span class="head-meta"><span id="daynum"></span><span id="date"></span><span id="countdown"></span>
-      <button class="icon-btn" id="help-open" aria-label="How to play">?</button></span>
-  </header>
-  <div class="legend" id="legend" aria-label="Materials"></div>
-  <main id="app"><p class="muted">Loading…</p></main>
-  <div id="side"></div>
-  <dialog id="help" aria-labelledby="help-title">
-    <h2 id="help-title">How to play</h2>
-    <ul>
-      <li><b>Two rounds a day</b>, easy then hard. Each contraption plays until just before the tricky part, then freezes.</li>
-      <li><b>Tap where A will come to rest.</b> Drag to adjust, then lock in and watch. <b>Skip ⏭</b> any time.</li>
-      <li><b>Score 0–100</b> for how close you were. 0 is only for the worst spot in the whole picture.</li>
-      <li><b>Bonus:</b> a laser fires into a box of mirrors. Tap the wall where it will hit.</li>
-      <li>Everyone gets the same puzzles, new at 00:00 UTC. Days get harder from Monday to Sunday. Replay any past day from the archive.</li>
-    </ul>
-    <p><b>Rules of this world:</b> sand stops anything that lands in it. Ice is slippery whatever touches it, rubber bounces whatever hits it, and steel is heavy. Fans push anything in their zone; conveyor belts carry things along; spinners never stop turning.</p>
-    <p><button class="primary" id="help-close">Got it</button></p>
-  </dialog>
-  <footer>Part of <a href="https://biccyanzac-pixel.github.io/jacob.gg/">jacob.gg</a> daily games</footer>
+  <main class="shell">
+    <header class="masthead">
+      <a class="wordmark" href="https://biccyanzac-pixel.github.io/jacob.gg/">jacob<span>.gg</span></a>
+    </header>
+
+    <section class="card" id="card">
+      <div class="card-top">
+        <span class="eyebrow" id="daynum">Daily</span>
+        <span class="eyebrow countdown" id="countdown"></span>
+      </div>
+      <p class="eyebrow challenge-label" id="challenge-label">Today's contraptions</p>
+      <h1 class="prompt">Where will it come to rest?</h1>
+      <p class="riddle-note">Each contraption plays until just before the tricky part, then freezes. Tap where <b>A</b> will stop, then watch what really happens. Score 0–100 for how close you are.</p>
+      <p class="attempts-note">2 rounds, easy then hard. Your daily score is the total, out of 200.</p>
+      <p class="bonus-teaser">🎁 There's a laser bonus round once you finish.</p>
+      <div class="legend" id="legend" aria-label="Materials"></div>
+      <div id="main-area"><p class="riddle-note">Loading…</p></div>
+    </section>
+
+    <section class="card board" id="board" hidden>
+      <div class="card-top">
+        <h2 class="eyebrow" id="board-title">Today's leaderboard</h2>
+        <span class="eyebrow" id="players"></span>
+      </div>
+      <div id="board-body"></div>
+    </section>
+
+    <section class="card bonus" id="bonus" hidden>
+      <div class="card-top"><h2 class="eyebrow">Bonus round</h2></div>
+      <p class="bonus-note">A laser fires into a box of mirrors. Every mirror reflects on both sides; dark blocks absorb the beam. Tap the wall where it will hit.</p>
+      <div id="bonus-area"></div>
+    </section>
+
+    <section class="card yesterday" id="yesterday" hidden>
+      <h2 class="eyebrow" id="yesterday-title">Yesterday's best</h2>
+      <div id="yesterday-body"></div>
+    </section>
+
+    <section class="card archive" id="archive">
+      <div class="card-top"><h2 class="eyebrow">Archive — replay a past day</h2></div>
+      <p class="archive-note">Pick a past day to play its contraptions. Archive plays go to a separate late leaderboard — they never change that day's original results.</p>
+      <div class="archive-picker">
+        <button type="button" class="archive-browse" id="archive-browse">Browse archive</button>
+        <a id="archive-today" href="./" hidden>← Back to today</a>
+      </div>
+      <ul class="archive-list" id="archive-list" hidden></ul>
+    </section>
+
+    <footer class="footer">
+      <p>New contraptions every day at midnight UTC. Ties broken by earliest submission. Part of <a href="https://biccyanzac-pixel.github.io/jacob.gg/">jacob.gg</a>.</p>
+    </footer>
+  </main>
   <script type="module" src="./js/game.js"></script>
 </body>
 </html>

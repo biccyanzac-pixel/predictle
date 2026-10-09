@@ -11,7 +11,13 @@ const SILVER = "#c9d2dc", EDGE = "#56606d", BEAM = "#ff2d55";
 
 function mirror(ctx, m, px) {
   ctx.lineCap = "round"; ctx.lineJoin = "round";
-  if (m.t === "flat" || m.t === "arc") {
+  if (m.t === "block") {
+    ctx.beginPath(); ctx.moveTo(...m.pts[0]); for (const q of m.pts.slice(1)) ctx.lineTo(...q); ctx.closePath();
+    ctx.fillStyle = "#2b3140"; ctx.fill();
+    ctx.strokeStyle = "#11151f"; ctx.lineWidth = 2 * px; ctx.stroke();
+    return;
+  }
+  if (m.t === "flat" || m.t === "arc" || m.t === "vee") {
     const pts = m.t === "flat" ? [[m.x1, m.y1], [m.x2, m.y2]] : m.pts;
     ctx.beginPath(); ctx.moveTo(...pts[0]); for (const q of pts.slice(1)) ctx.lineTo(...q);
     ctx.strokeStyle = EDGE; ctx.lineWidth = 0.13; ctx.stroke();
@@ -21,7 +27,7 @@ function mirror(ctx, m, px) {
   }
   ctx.beginPath();
   if (m.t === "round") ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
-  else { ctx.moveTo(...m.pts[0]); ctx.lineTo(...m.pts[1]); ctx.lineTo(...m.pts[2]); ctx.closePath(); }
+  else { ctx.moveTo(...m.pts[0]); for (const q of m.pts.slice(1)) ctx.lineTo(...q); ctx.closePath(); }
   ctx.fillStyle = SILVER; ctx.fill();
   ctx.strokeStyle = EDGE; ctx.lineWidth = 3 * px; ctx.stroke();
   // a little shine

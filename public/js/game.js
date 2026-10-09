@@ -1,4 +1,4 @@
-// Predictle: the daily game page.
+// Predictle: the daily game page (same layout and feel as ridd-le).
 // Two freeze-frame rounds (easy, hard), then the laser bonus. Leaderboards for both,
 // yesterday's best, and an archive of every past day.
 import { unpackDay, decodeMotion } from "./shared/codec.js";
@@ -32,7 +32,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked: play on without saving */ } },
 };
 
-// ---------------------------------------------------------------- which day
+// ---------------------------------------------------------------- which day, saved progress
 const today = todayUTC();
 const date = pickDate(location.search, { local: isLocal });
 const isArchive = date !== today;
@@ -47,32 +47,29 @@ const save = () => {
   h[date] = { main: mainDone() ? mainTotal() : null, bonus: bonusDone() ? state.scores[2] : null };
   store.set("predictle:history", h);
 };
+const playerName = () => store.get("predictle:name", "");
 
-// ---------------------------------------------------------------- header, countdown, help
-$("#daynum").textContent = `#${dayNumber(date)}`;
-$("#date").textContent = prettyDate(date);
+// ---------------------------------------------------------------- header
+$("#daynum").textContent = `Daily #${dayNumber(date)}`;
+if (isArchive) {
+  $("#challenge-label").replaceChildren(`Archive · ${prettyDate(date)} `, el("span", { class: "late-badge" }, "played late"));
+}
 function tickCountdown() {
-  if (todayUTC() !== today) { $("#countdown").replaceChildren(el("a", { href: "./" }, "New puzzles: refresh")); return; }
+  if (todayUTC() !== today) { $("#countdown").replaceChildren(el("a", { href: "./" }, "new puzzles ready — refresh")); return; }
   const s = Math.floor(msUntilNextDay() / 1000), pad = (n) => String(n).padStart(2, "0");
   $("#countdown").textContent = `next in ${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
 }
 tickCountdown();
 setInterval(tickCountdown, 1000);
-$("#help-open").addEventListener("click", () => $("#help").showModal());
-$("#help-close").addEventListener("click", () => $("#help").close());
-buildLegend($("#legend"));
-if (!store.get("predictle:seen-help")) { store.set("predictle:seen-help", true); $("#help").showModal(); }
-
-function buildLegend(box) {
-  for (const [name, m] of Object.entries(MATERIALS)) {
-    const sw = el("canvas", { width: 44, height: 44, "aria-hidden": "true" });
-    box.append(el("span", {}, sw, `${m.label} `, el("small", {}, m.note)));
-    const r = new Renderer(sw, { world: { width: 1, height: 1 } }, null);
-    r.scale = 44; r.tile = 20;
-    r.ctx.setTransform(44, 0, 0, -44, 0, 44);
-    r.drawShape({ t: "box", x: 0.5, y: 0.5, hw: 0.5, hh: 0.5, m: name });
-  }
+for (const [name, m] of Object.entries(MATERIALS)) {
+  const sw = el("canvas", { width: 32, height: 32, "aria-hidden": "true" });
+  $("#legend").append(el("span", {}, sw, `${m.label} `, el("small", {}, m.note)));
+  const r = new Renderer(sw, { world: { width: 1, height: 1 } }, null);
+  r.scale = 32; r.tile = 15;
+  r.ctx.setTransform(32, 0, 0, -32, 0, 32);
+  r.drawShape({ t: "box", x: 0.5, y: 0.5, hw: 0.5, hh: 0.5, m: name });
 }
+setupArchive();
 
 // ---------------------------------------------------------------- loading a day
 async function fetchDay(d) {
@@ -100,67 +97,66 @@ function buildInBrowser(d, onProgress) {
   });
 }
 
-const app = $("#app");
+const mainArea = $("#main-area");
 let day;
 try {
   day = new URLSearchParams(location.search).has("build") ? null : await fetchDay(date);
   if (!day) {
-    const status = el("p", { class: "muted" }, "Starting…");
-    app.replaceChildren(el("section", { class: "card" }, el("h2", {}, "Building the contraptions"),
-      el("p", {}, "There's no ready-made file for this day, so your browser is generating it from the date. Everyone gets exactly the same puzzles. This can take a little while."),
-      status));
+    const status = el("span", {}, "Starting…");
+    mainArea.replaceChildren(el("p", { class: "board-locked" },
+      "There's no ready-made file for this day, so your browser is building it from the date (everyone gets exactly the same puzzles). This can take a minute or two. ", status));
     day = await buildInBrowser(date, ({ round, attempt }) => {
       status.textContent = round < 2 ? `Round ${round + 1}: trying design ${attempt + 1}…` : "Bonus laser puzzle…";
     });
   }
 } catch (e) {
   console.error(e);
-  app.replaceChildren(el("section", { class: "card" }, el("h2", {}, "Couldn't load the puzzles"), el("p", {}, String(e.message ?? e))));
+  mainArea.replaceChildren(el("p", { class: "error" }, `Couldn't load the puzzles: ${e.message ?? e}`));
 }
 if (day) {
   showMain();
-  renderSideCards();
+  showBonus();
+  api.ready.then(() => { showBoard(); showYesterday(); });
 }
 
-// ---------------------------------------------------------------- main area
+// ---------------------------------------------------------------- main card
 function showMain() {
-  if (!mainDone()) {
-    if (state.scores[0] == null && !state.started) showIntro();
-    else playRound(state.scores[0] == null ? 0 : 1);
-  } else if (state.playingBonus && !bonusDone()) playLaser();
-  else showSummary();
+  if (mainDone()) return showDailyScore();
+  if (state.scores[0] != null) return playRound(1);
+  showStart();
 }
 
-function archiveBanner() {
-  if (!isArchive) return "";
-  return el("p", { class: "banner" }, `Archive: #${dayNumber(date)}, ${prettyDate(date)}. Scores go on that day's "played later" board. `,
-    el("a", { href: "./" }, "Back to today"));
+function showStart() {
+  const nameInput = el("input", { id: "name", type: "text", maxlength: 20, autocomplete: "nickname", placeholder: "e.g. jacob", value: playerName() });
+  const err = el("p", { class: "error", hidden: true });
+  const start = el("button", { class: "submit", onclick: () => {
+    const n = nameInput.value.replace(/\s+/g, " ").trim();
+    if (!n) { err.textContent = "Pick a name for the leaderboard first."; err.hidden = false; nameInput.focus(); return; }
+    store.set("predictle:name", n);
+    state.started = true; save();
+    playRound(state.scores[0] == null ? 0 : 1);
+  } }, "Start round 1 of 2");
+  const known = playerName();
+  mainArea.replaceChildren(el("div", { class: "play" },
+    known
+      ? el("p", { class: "playing-as" }, `Playing as ${known} · `, el("a", { href: "#", onclick: (e) => { e.preventDefault(); store.set("predictle:name", ""); showStart(); } }, "change"))
+      : el("label", { class: "field" }, el("span", { class: "label" }, "Your name"), nameInput),
+    err, start,
+    el("p", { class: "fineprint" }, `${["Monday: the gentlest day of the week", "Tuesday: still gentle", "Wednesday: a bit trickier", "Thursday: midweek", "Friday: getting tough", "Saturday: tough", "Sunday: the toughest day of the week"][weekdayOf(date)]}. One go per day.`)));
 }
 
-function showIntro() {
-  const tone = ["the gentlest day", "still gentle", "a bit trickier", "midweek", "getting tough", "tough", "the toughest day"][weekdayOf(date)];
-  app.replaceChildren(archiveBanner(), el("section", { class: "card intro" },
-    el("h2", {}, "Watch, freeze, predict."),
-    el("p", {}, "Each contraption plays until just before the tricky part, then freezes. Tap where ", el("b", {}, "A"), " will come to rest, then watch what really happens."),
-    el("ol", { class: "plan" },
-      el("li", {}, el("b", {}, "Round 1"), " · easy"),
-      el("li", {}, el("b", {}, "Round 2"), " · hard"),
-      el("li", {}, el("b", {}, "Bonus"), " · where does the laser hit the wall?")),
-    el("p", { class: "muted" }, `${DAY_NAMES[weekdayOf(date)]}: ${tone} of the week.`),
-    el("button", { class: "primary big", onclick: () => { state.started = true; save(); playRound(0); } }, "Start"),
-  ));
-}
-
-// ---------------------------------------------------------------- shared stage (canvas + skip + slow-mo badge)
-function makeStage(head, question) {
+// a stage (canvas, slow-mo badge, skip button) inside a container
+function makeStage(container, pillText, pillClass, stepText, question) {
   const canvas = el("canvas", { class: "view", "aria-label": "Puzzle picture" });
   const badge = el("div", { class: "slowmo", hidden: true }, "Slow motion");
   const skip = el("button", { class: "skip", hidden: true }, "Skip ⏭");
   const prompt = el("p", { class: "question" }, question);
   const controls = el("div", { class: "controls" });
-  const result = el("div", { class: "result", hidden: true });
-  app.replaceChildren(archiveBanner(), el("section", { class: "puzzle" }, head, prompt, el("div", { class: "stage" }, canvas, badge, skip), controls, result));
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  const result = el("div", { hidden: true });
+  container.replaceChildren(
+    el("div", { class: "round-head" }, el("span", { class: `pill ${pillClass}` }, pillText), el("span", { class: "eyebrow" }, stepText)),
+    prompt, el("div", { class: "stage" }, canvas, badge, skip), controls, result);
+  container.scrollIntoView({ behavior: "smooth", block: "start" });
   return { canvas, badge, skip, prompt, controls, result };
 }
 
@@ -179,11 +175,10 @@ function tapInput(canvas, r, active, onPoint) {
   canvas.addEventListener("pointercancel", up);
 }
 
-function resultBox(result, score, detailText, buttons) {
+function roundResult(result, score, text, buttons) {
   result.hidden = false;
   result.replaceChildren(
-    el("div", { class: "score" }, el("span", { class: "big-num" }, String(points(score))), el("span", { class: "of" }, "/100 "), emoji(score)),
-    el("p", {}, detailText),
+    el("div", { class: "round-result" }, el("span", { class: "num" }, String(points(score))), el("p", {}, `/100 ${emoji(score)} · ${text}`)),
     el("div", { class: "controls" }, buttons));
   result.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -195,8 +190,7 @@ function playRound(i) {
   const mainK = p.bodies.findIndex((b) => b.role === "main");
   const s0 = p.bodies[mainK].shapes[0];
   const mainR = s0.t === "circle" ? s0.r : Math.max(s0.hw, s0.hh);
-  const head = el("div", { class: "puzzle-head" }, el("span", { class: "step" }, `Round ${i + 1} of 2`), el("span", { class: `slot ${p.slot}` }, p.slot));
-  const { canvas, badge, skip, prompt, controls, result } = makeStage(head, "Watch the start…");
+  const { canvas, badge, skip, prompt, controls, result } = makeStage(mainArea, p.slot, p.slot, `Round ${i + 1} of 2`, "Watch the start…");
   const meta = { world: p.world, fps: p.fps, frameCount: p.recordings[0].frameCount, keyFrame: p.recordings[0].keyFrame, statics: p.statics, decor: p.decor, bodies: p.bodies };
   const r = new Renderer(canvas, meta, day.motions[i][0]);
 
@@ -236,7 +230,7 @@ function playRound(i) {
     const px = 1 / r.scale;
     if (phase === "predict") {
       const q = r.motion.bodies[mainK], fi = Math.round(f);
-      ctx.strokeStyle = "rgba(15,143,122,0.9)"; ctx.lineWidth = 3 * px;
+      ctx.strokeStyle = "rgba(75,91,220,0.95)"; ctx.lineWidth = 3 * px;
       ctx.beginPath(); ctx.arc(q.x[fi], q.y[fi], mainR + 0.08 + 0.04 * Math.sin(t * 5), 0, 7); ctx.stroke();
     }
     if (guess) {
@@ -253,46 +247,94 @@ function playRound(i) {
     }
   };
 
-  const lockBtn = el("button", { class: "primary", disabled: true, onclick: () => lockIn() }, "Lock in");
-  const readout = el("span", { class: "readout" }, "Tap where it will stop");
-  const clearBtn = el("button", { onclick: () => { guess = null; lockBtn.disabled = true; readout.textContent = "Tap where it will stop"; } }, "Clear");
-  const again = el("button", { onclick: () => { if (phase === "predict") { phase = "watch"; prompt.textContent = "Watch the start…"; controls.replaceChildren(); playFrom(0, false); } } }, "Watch again");
-  function showInput() { controls.replaceChildren(again, readout, clearBtn, lockBtn); }
+  const lockBtn = el("button", { class: "submit", disabled: true, onclick: () => lockIn() }, "Lock in");
+  const readout = el("span", { class: "readout" }, "Tap where it will come to rest.");
+  const clearBtn = el("button", { class: "ghost", onclick: () => { guess = null; lockBtn.disabled = true; readout.textContent = "Tap where it will come to rest."; } }, "Clear");
+  const again = el("button", { class: "ghost", onclick: () => { if (phase === "predict") { phase = "watch"; prompt.textContent = "Watch the start…"; controls.replaceChildren(); playFrom(0, false); } } }, "Watch again");
+  function showInput() { controls.replaceChildren(readout, again, clearBtn, lockBtn); }
   tapInput(canvas, r, () => phase === "predict", (w) => {
     guess = { x: Math.min(W - 0.2, Math.max(0.2, w.x)), y: Math.min(H - 0.2, Math.max(0.2, w.y)) };
-    lockBtn.disabled = false; readout.textContent = "Drag to adjust";
+    lockBtn.disabled = false; readout.textContent = "Drag to adjust, then lock in.";
   });
 
   async function lockIn() {
     if (!guess || phase !== "predict") return;
     phase = "play";
-    controls.replaceChildren(el("span", { class: "muted" }, "Watch…"));
+    controls.replaceChildren(el("span", { class: "readout" }, "Watch…"));
     await playFrom(freezeAt);
     phase = "done";
     const score = scorePuzzle(p, guess);
     state.guesses[i] = guess; state.scores[i] = score; save();
     const d = hypot(guess.x - p.answer.final.x, guess.y - p.answer.final.y);
     controls.replaceChildren();
-    resultBox(result, score, `You were ${d.toFixed(2)} m from where it stopped.`, [
-      el("button", { onclick: () => playFrom(Math.max(0, (meta.keyFrame ?? 0) - p.fps * 1.2)) }, "Replay key moment"),
-      el("button", { onclick: () => playFrom(0, false) }, "Replay all"),
-      el("button", { class: "primary", onclick: () => (i === 0 ? playRound(1) : (showSummary(), renderSideCards())) }, i === 0 ? "Round 2" : "See results"),
+    if (i === 1) { submitBoard("main"); showBonus(); }
+    roundResult(result, score, `${d.toFixed(2)} m from where it stopped`, [
+      el("button", { class: "ghost", onclick: () => playFrom(Math.max(0, (meta.keyFrame ?? 0) - p.fps * 1.2)) }, "Replay key moment"),
+      el("button", { class: "ghost", onclick: () => playFrom(0, false) }, "Replay all"),
+      el("button", { class: "submit", onclick: () => (i === 0 ? playRound(1) : showDailyScore()) }, i === 0 ? "Round 2 of 2 →" : "See my daily score"),
     ]);
   }
 }
 
+// ---------------------------------------------------------------- daily score (ridd-le style)
+function shareText() {
+  const main = `${emoji(state.scores[0])}${emoji(state.scores[1])} ${points(mainTotal())}/200`;
+  const bonus = bonusDone() ? ` · 🎁${emoji(state.scores[2])} ${points(state.scores[2])}` : "";
+  return `predictle #${dayNumber(date)} ${main}${bonus}\n${location.origin}${location.pathname}${isArchive ? `?date=${date}` : ""}`;
+}
+
+function streak() {
+  const h = store.get("predictle:history", {});
+  let s = 0;
+  for (let d = today; h[d]?.main != null; d = addDays(d, -1)) s++;
+  return s;
+}
+
+function showDailyScore() {
+  const copy = el("button", { class: "ghost", onclick: async () => {
+    try { await navigator.clipboard.writeText(shareText()); copy.textContent = "Copied!"; } catch { copy.textContent = "Select the text to copy"; }
+  } }, "Copy result");
+  const st = streak();
+  mainArea.replaceChildren(el("div", { class: "attempts" },
+    el("p", { class: "eyebrow" }, isArchive ? "Your archive score" : "Daily score"),
+    el("p", { class: "score" }, String(points(mainTotal())), el("small", {}, " / 200")),
+    el("ol", { class: "attempt-list" },
+      el("li", {}, el("span", {}, "Round 1 · easy"), el("b", {}, `${points(state.scores[0])} ${emoji(state.scores[0])}`)),
+      el("li", {}, el("span", {}, "Round 2 · hard"), el("b", {}, `${points(state.scores[1])} ${emoji(state.scores[1])}`)),
+      bonusDone() ? el("li", {}, el("span", {}, "🎁 Bonus · laser"), el("b", {}, `${points(state.scores[2])} ${emoji(state.scores[2])}`)) : null),
+    el("pre", { class: "share" }, shareText()),
+    el("div", { class: "controls" }, copy),
+    el("p", { class: "fineprint", style: "margin-top: .9rem" }, isArchive ? "Archive play: counted on that day's late board only." : `Streak: ${st} day${st === 1 ? "" : "s"}. Come back tomorrow for new contraptions.`),
+    bonusDone() ? null : el("button", { class: "play-bonus-button", onclick: () => $("#bonus").scrollIntoView({ behavior: "smooth" }) }, "🎁 Play the bonus round →")));
+}
+
 // ---------------------------------------------------------------- the laser bonus
+function showBonus() {
+  const card = $("#bonus"), area = $("#bonus-area");
+  card.hidden = false;
+  if (!mainDone()) { area.replaceChildren(el("p", { class: "bonus-locked" }, "🔒 Unlocks once you've finished both rounds.")); return; }
+  if (bonusDone()) { bonusDoneView(); return; }
+  area.replaceChildren(el("button", { class: "submit", style: "width: 100%", onclick: () => playLaser() }, "Fire the laser"));
+}
+
+function bonusDoneView() {
+  const area = $("#bonus-area");
+  area.replaceChildren(
+    el("p", { class: "eyebrow" }, "Bonus score"),
+    el("p", { class: "score" }, String(points(state.scores[2])), el("small", {}, " / 100")),
+    el("div", { class: "bonus-board", id: "bonus-board" }));
+  fillBoard($("#bonus-board"), "bonus", (row) => `${emoji(row.total)} ${points(row.total)}`);
+}
+
 function playLaser() {
   const p = day.header.puzzles[2];
   const world = p.world;
-  const head = el("div", { class: "puzzle-head" }, el("span", { class: "step" }, "Bonus"), el("span", { class: "slot bonus" }, "laser"));
-  const { canvas, skip, prompt, controls, result } = makeStage(head, p.question);
-  void prompt;
+  const { canvas, skip, controls, result } = makeStage($("#bonus-area"), "bonus", "bonus", "Laser", p.question);
   const r = new Renderer(canvas, { world, fps: 30, frameCount: 1, keyFrame: null, statics: [], decor: [], bodies: [] }, { bodies: [] });
   const total = beamLength(p.answer.path);
   const STUB = 0.7; // how much beam you see before you guess
   let phase = "predict", shown = STUB, guess = null, prev = null, wall = 0, ended = null;
-  const speed = Math.max(4, total / 4.5); // m/s: the whole beam in at most ~4.5 s
+  const speed = Math.max(4, total / 5); // m/s: the whole beam in at most ~5 s
 
   skip.onclick = () => { shown = total; };
   function tick(now) {
@@ -309,162 +351,119 @@ function playLaser() {
   }
   new ResizeObserver(() => r.resize()).observe(canvas);
   requestAnimationFrame(tick);
-
   r.overlay = (ctx, _f, t) => drawLaser(ctx, p, { px: 1 / r.scale, shown, guess, answer: phase === "done" && shown >= total ? p.answer.hit : null, time: t });
 
-  const lockBtn = el("button", { class: "primary", disabled: true, onclick: () => lockIn() }, "Lock in");
-  const readout = el("span", { class: "readout" }, "Tap the wall where the beam will hit");
-  controls.append(readout, el("button", { onclick: () => { guess = null; lockBtn.disabled = true; } }, "Clear"), lockBtn);
+  const lockBtn = el("button", { class: "submit", disabled: true, onclick: () => lockIn() }, "Lock in");
+  const readout = el("span", { class: "readout" }, "Tap the wall where the beam will hit.");
+  controls.append(readout, el("button", { class: "ghost", onclick: () => { guess = null; lockBtn.disabled = true; } }, "Clear"), lockBtn);
   tapInput(canvas, r, () => phase === "predict", (w) => {
     guess = perimeterPoint(perimeterPos(w, world), world); // snap to the nearest wall
-    lockBtn.disabled = false; readout.textContent = "Drag along the wall to adjust";
+    lockBtn.disabled = false; readout.textContent = "Drag along the wall to adjust, then lock in.";
   });
 
   async function lockIn() {
     if (!guess || phase !== "predict") return;
     phase = "play";
-    controls.replaceChildren(el("span", { class: "muted" }, "Firing…"));
+    controls.replaceChildren(el("span", { class: "readout" }, "Firing…"));
     await new Promise((res) => (ended = res));
     phase = "done";
     const score = scorePuzzle(p, guess);
-    state.guesses[2] = guess; state.scores[2] = score; state.playingBonus = false; save();
+    state.guesses[2] = guess; state.scores[2] = score; save();
+    submitBoard("bonus");
     const P = 2 * (world.width + world.height), a = perimeterPos(guess, world), b = perimeterPos(p.answer.hit, world);
     const miss = Math.min(Math.abs(a - b), P - Math.abs(a - b));
     controls.replaceChildren();
-    resultBox(result, score, `The beam bounced ${p.answer.bounces} times. You were ${miss.toFixed(2)} m away, measured along the wall.`, [
-      el("button", { onclick: () => { shown = STUB; } }, "Fire again"),
-      el("button", { class: "primary", onclick: () => { showSummary(); renderSideCards(); } }, "See results"),
+    roundResult(result, score, `${p.answer.bounces} reflections · ${miss.toFixed(2)} m away along the wall`, [
+      el("button", { class: "ghost", onclick: () => { shown = STUB; } }, "Fire again"),
+      el("button", { class: "submit", onclick: () => { bonusDoneView(); if (mainDone()) showDailyScore(); } }, "Done"),
     ]);
   }
 }
 
-// ---------------------------------------------------------------- summary
-function shareText() {
-  const main = `${emoji(state.scores[0])}${emoji(state.scores[1])} ${points(mainTotal())}/200`;
-  const bonus = bonusDone() ? ` · ⚡${emoji(state.scores[2])} ${points(state.scores[2])}` : "";
-  return `Predictle #${dayNumber(date)} ${main}${bonus}\n${location.origin}${location.pathname}${isArchive ? `?date=${date}` : ""}`;
+// ---------------------------------------------------------------- leaderboards
+function rowsFor(board, scoreOf) {
+  if (!board.top.length) return el("p", { class: "board-empty" }, isArchive ? "Nobody played on the actual day." : "Nobody has played yet today. Be the first.");
+  const ol = el("ol", { class: "rows" });
+  const row = (r) => el("li", { class: `row${r.you ? " me" : ""}` },
+    el("span", { class: "row-rank" }, String(r.rank)),
+    el("span", { class: "row-name" }, r.name),
+    el("span", { class: "row-score" }, scoreOf(r)));
+  for (const r of board.top) ol.append(row(r));
+  if (board.you) ol.append(row(board.you));
+  return ol;
 }
+const mainScore = (r) => `${r.scores.map(emoji).join("")} ${points(r.total)}`;
 
-function streak() {
-  const h = store.get("predictle:history", {});
-  let s = 0;
-  for (let d = today; h[d]?.main != null; d = addDays(d, -1)) s++;
-  return { streak: s, played: Object.values(h).filter((x) => x.main != null).length };
-}
-
-function showSummary() {
-  const share = el("pre", { class: "share" }, shareText());
-  const copy = el("button", { class: "primary", onclick: async () => {
-    try { await navigator.clipboard.writeText(shareText()); copy.textContent = "Copied!"; } catch { copy.textContent = "Select the text to copy"; }
-  } }, "Copy result");
-  const { streak: st, played } = streak();
-  app.replaceChildren(archiveBanner(), el("section", { class: "card" },
-    el("h2", {}, `${points(mainTotal())} / 200 `, emoji(state.scores[0]), emoji(state.scores[1])),
-    el("ul", { class: "scores" },
-      el("li", {}, el("span", {}, "Round 1 · easy"), el("b", {}, `${points(state.scores[0])} ${emoji(state.scores[0])}`)),
-      el("li", {}, el("span", {}, "Round 2 · hard"), el("b", {}, `${points(state.scores[1])} ${emoji(state.scores[1])}`)),
-      bonusDone() ? el("li", {}, el("span", {}, "⚡ Bonus · laser"), el("b", {}, `${points(state.scores[2])} ${emoji(state.scores[2])}`)) : null),
-    bonusDone() ? null : el("div", { class: "bonus-cta" },
-      el("p", {}, el("b", {}, "⚡ Bonus round unlocked: "), "a laser fires into a box of mirrors. Where does it hit the wall?"),
-      el("button", { class: "primary big", onclick: () => { state.playingBonus = true; save(); playLaser(); } }, "Play the bonus")),
-    share,
-    el("div", { class: "controls" }, copy),
-    el("p", { class: "muted" }, `Streak: ${st} day${st === 1 ? "" : "s"} · days played: ${played}`),
-  ));
-}
-
-// ---------------------------------------------------------------- leaderboards, yesterday, archive
-function boardRows(board, scoreOf) {
-  const list = el("ol", { class: "ranks" });
-  if (!board.top.length) list.append(el("li", { class: "muted" }, "Nobody yet. Be the first."));
-  for (const row of board.top) list.append(el("li", { class: row.you ? "you" : "" }, el("span", {}, `${row.rank}. ${row.name}`), el("span", {}, scoreOf(row))));
-  if (board.you) list.append(el("li", { class: "you" }, el("span", {}, `${board.you.rank}. ${board.you.name}`), el("span", {}, scoreOf(board.you))));
-  return list;
-}
-const mainScore = (row) => `${row.scores.map(emoji).join("")} ${points(row.total)}`;
-const bonusScore = (row) => `⚡${emoji(row.total)} ${points(row.total)}`;
-
-async function renderSideCards() {
+async function submitBoard(board) {
   await api.ready;
-  const side = $("#side");
-  side.replaceChildren();
-  if (api.configured()) {
-    side.append(boardCard("main", isArchive ? "Leaderboard for this day" : "Today's leaderboard", mainDone(), () => state.guesses.slice(0, 2), mainScore));
-    if (mainDone()) side.append(boardCard("bonus", "Bonus leaderboard ⚡", bonusDone(), () => [state.guesses[2]], bonusScore));
-    if (!isArchive) side.append(yesterdayCard());
+  if (!api.configured() || !playerName()) return;
+  const key = `predictle:submitted:${board}:${date}`;
+  if (store.get(key)) return;
+  try {
+    await api.submit(date, board, playerName(), board === "main" ? state.guesses.slice(0, 2) : [state.guesses[2]]);
+    store.set(key, true);
+  } catch (e) {
+    if (/already/i.test(e.message)) store.set(key, true);
+    else console.warn("leaderboard:", e.message);
   }
-  side.append(archiveCard());
+  if (board === "main") showBoard();
+  else if ($("#bonus-board")) fillBoard($("#bonus-board"), "bonus", (row) => `${emoji(row.total)} ${points(row.total)}`);
 }
 
-function boardCard(board, title, canSubmit, guesses, scoreOf) {
-  const card = el("section", { class: "card board" }, el("h3", {}, title));
-  const status = el("p", { class: "muted" });
-  const body = el("div");
-  card.append(status, body);
-  const subKey = `predictle:submitted:${board}:${date}`;
-  const load = () => Promise.all([api.board(date, board, false), isArchive ? api.board(date, board, true) : null])
-    .then(([onDay, late]) => {
-      status.textContent = `${onDay.players} player${onDay.players === 1 ? "" : "s"} on the day`;
-      body.replaceChildren(boardRows(onDay, scoreOf));
-      if (late) body.append(el("h4", {}, `Played later (${late.players})`), boardRows(late, scoreOf));
-    }).catch(() => (status.textContent = "Couldn't load the leaderboard."));
-  if (canSubmit && !store.get(subKey)) {
-    const name = el("input", { maxlength: 20, placeholder: "Your name", value: store.get("predictle:name", ""), "aria-label": "Your name" });
-    const send = el("button", { class: "primary", onclick: async () => {
-      const n = name.value.trim();
-      if (!n) { name.focus(); return; }
-      store.set("predictle:name", n);
-      send.disabled = true; status.textContent = "Sending…";
-      try {
-        await api.submit(date, board, n, guesses());
-        store.set(subKey, true);
-        form.remove();
-        load();
-      } catch (e) { status.textContent = e.message; send.disabled = false; }
-    } }, "Add my score");
-    const form = el("div", { class: "controls" }, name, send);
-    card.insertBefore(form, status);
-  } else if (!canSubmit) {
-    card.append(el("p", { class: "muted small" }, "Play to add your score."));
-  }
-  load();
-  return card;
+/** Main board card; in the archive it shows that day's real board and the late board side by side. */
+function showBoard() {
+  if (!api.configured()) return;
+  const card = $("#board");
+  card.hidden = false;
+  $("#board-title").textContent = isArchive ? `Leaderboards · #${dayNumber(date)}` : "Today's leaderboard";
+  fillBoard($("#board-body"), "main", mainScore, (n) => ($("#players").textContent = `${n} player${n === 1 ? "" : "s"}`));
 }
 
-function yesterdayCard() {
+function fillBoard(container, board, scoreOf, onPlayers) {
+  if (!api.configured()) return;
+  Promise.all([api.board(date, board, false), isArchive ? api.board(date, board, true) : null]).then(([real, late]) => {
+    onPlayers?.(real.players);
+    if (!late) { container.replaceChildren(rowsFor(real, scoreOf)); return; }
+    container.replaceChildren(el("div", { class: "archive-boards" },
+      el("div", {}, el("h4", { class: "eyebrow" }, "That day's real leaderboard"), rowsFor(real, scoreOf)),
+      el("div", {}, el("h4", { class: "eyebrow" }, "Late leaderboard ", el("span", { class: "late-badge" }, "not made on the original day")),
+        late.top.length ? rowsFor(late, scoreOf) : el("p", { class: "board-empty" }, "Nobody has replayed this day yet."))));
+  }).catch(() => container.replaceChildren(el("p", { class: "board-empty" }, "Couldn't load the leaderboard.")));
+}
+
+function showYesterday() {
+  if (!api.configured() || isArchive) return;
   const y = addDays(today, -1);
-  const card = el("section", { class: "card" }, el("h3", {}, `Yesterday (#${dayNumber(y)})`));
-  if (y < LAUNCH_DAY) { card.append(el("p", { class: "muted" }, "Predictle started today.")); return card; }
-  const body = el("div", {}, el("p", { class: "muted" }, "Loading…"));
-  card.append(body, el("p", {}, el("a", { href: `?date=${y}` }, "Play yesterday's puzzles →")));
+  if (y < LAUNCH_DAY) return;
+  $("#yesterday").hidden = false;
+  $("#yesterday-title").textContent = `Yesterday's best · #${dayNumber(y)}`;
+  const body = $("#yesterday-body");
   Promise.all([api.board(y, "main", false), api.board(y, "bonus", false)]).then(([m, b]) => {
-    const best = (bd, f) => (bd.top[0] ? `${bd.top[0].name}, ${f(bd.top[0])}` : "nobody played");
+    const top3 = (bd) => ({ ...bd, top: bd.top.slice(0, 3), you: null });
     body.replaceChildren(
-      el("p", {}, el("b", {}, "Best: "), best(m, mainScore), m.players ? ` (${m.players} played)` : ""),
-      el("p", {}, el("b", {}, "Best bonus: "), best(b, bonusScore)));
-  }).catch(() => body.replaceChildren(el("p", { class: "muted" }, "Couldn't load yesterday's results.")));
-  return card;
+      el("div", { class: "yesterday-rows" }, rowsFor(top3(m), mainScore)),
+      el("div", { class: "yesterday-best" }, el("h3", { class: "eyebrow" }, "Yesterday's bonus round"),
+        el("div", { class: "yesterday-rows" }, rowsFor(top3(b), (r) => `${emoji(r.total)} ${points(r.total)}`))),
+      el("p", { class: "riddle-note" }, el("a", { href: `?date=${y}` }, "Play yesterday's contraptions →")));
+  }).catch(() => ($("#yesterday").hidden = true));
 }
 
-function archiveCard() {
-  const h = store.get("predictle:history", {});
-  const days = [];
-  for (let d = addDays(today, -1); d >= LAUNCH_DAY; d = addDays(d, -1)) days.push(d);
-  const card = el("section", { class: "card archive" }, el("h3", {}, "Archive: replay a past day"));
-  if (isArchive) card.append(el("p", {}, el("a", { href: "./" }, `← Today (#${dayNumber(today)})`)));
-  if (!days.length) { card.append(el("p", { class: "muted" }, "Past days will appear here.")); return card; }
-  const list = el("ul", { class: "days" });
-  const item = (d) => {
-    const mine = h[d];
-    return el("li", { class: d === date ? "current" : "" }, el("a", { href: `?date=${d}` },
-      el("span", {}, `#${dayNumber(d)} · ${prettyDate(d)}`),
-      el("span", { class: "muted" }, mine?.main != null ? `${points(mine.main)}/200${mine.bonus != null ? ` · ⚡${points(mine.bonus)}` : ""}` : "not played")));
-  };
-  days.slice(0, 7).forEach((d) => list.append(item(d)));
-  card.append(list);
-  if (days.length > 7) {
-    const more = el("button", { onclick: () => { days.slice(7).forEach((d) => list.append(item(d))); more.remove(); } }, `Show all ${days.length} days`);
-    card.append(more);
-  }
-  return card;
+// ---------------------------------------------------------------- archive dropdown
+function setupArchive() {
+  const btn = $("#archive-browse"), list = $("#archive-list");
+  $("#archive-today").hidden = !isArchive;
+  btn.addEventListener("click", () => {
+    if (!list.hidden) { list.hidden = true; btn.textContent = "Browse archive"; return; }
+    const h = store.get("predictle:history", {});
+    list.replaceChildren();
+    for (let d = addDays(today, -1); d >= LAUNCH_DAY; d = addDays(d, -1)) {
+      const mine = h[d];
+      list.append(el("li", {}, el("a", { class: `archive-list-item${d === date ? " current" : ""}`, href: `?date=${d}` },
+        el("span", { class: "archive-list-day" }, `Daily #${dayNumber(d)} — ${prettyDate(d)}`),
+        el("span", { class: "archive-list-prompt" }, mine?.main != null ? `You scored ${points(mine.main)}/200${mine.bonus != null ? ` · bonus ${points(mine.bonus)}` : ""}` : "Not played yet"))));
+    }
+    if (!list.children.length) list.append(el("li", { class: "archive-list-prompt" }, "No past days yet: today is the first."));
+    list.hidden = false;
+    btn.textContent = "Hide archive";
+  });
 }

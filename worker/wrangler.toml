@@ -6,7 +6,7 @@ compatibility_date = "2026-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "predictle-leaderboard"
-database_id = "REPLACE_AFTER_d1_create"
+database_id = "c3b9e867-b731-4cf1-b3ec-e309ceb7b48e"
 
 [vars]
 # Browser origins allowed to call this API (comma-separated).

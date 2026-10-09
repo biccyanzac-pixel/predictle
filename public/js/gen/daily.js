@@ -20,12 +20,13 @@ import { scoreDistance } from "../shared/scoring.js";
 import { weekdayOf } from "../shared/daily.js";
 
 export const SLOTS = ["easy", "hard"];
-export const MAX_SECONDS = 12;      // simulate at most this long
-export const MAX_SETTLE = 10;       // the tracked object must be at rest by then
+export const MAX_SECONDS = 34;      // simulate at most this long
+export const MAX_SETTLE = 30;       // the tracked object must be at rest by then (skip exists)
 export const CHAOS_RUNS = 20;
 export const CHAOS_LIMIT = 0.04;    // max spread of the resting spot under nudges, as a share of arena width
-export const MAX_ATTEMPTS = 600;
-const TWISTY = new Set(["bumper", "seesaw", "spring", "conveyor", "fan", "pendulum", "spinner", "ball", "block"]);
+export const MAX_ATTEMPTS = 2000;
+const TWISTY = new Set(["bumper", "seesaw", "spring", "conveyor", "fan", "pendulum", "spinner", "ball", "block", "lowgrav"]);
+const ZONES = new Set(["fan", "lowgrav"]);
 const FLOOR_Y = 0.16;
 
 /** Easy: 0.05 (Mon) .. 0.41 (Sun). Hard: 0.6 (Mon) .. 1.0 (Sun). */
@@ -92,20 +93,20 @@ async function build(rng, level) {
 
   const fits = (c) => {
     const b = bounds(c);
-    if (c.type === "fan") return c.x1 >= 0.2 && c.x2 <= W - 0.2 && c.y1 >= 1.2 && c.y2 <= H - 0.2 && !comps.some((o) => o.type === "fan");
+    if (ZONES.has(c.type)) return c.x1 >= 0.2 && c.x2 <= W - 0.2 && c.y1 >= 1.2 && c.y2 <= H - 0.2 && comps.filter((o) => ZONES.has(o.type)).length < 2;
     if (!inBounds(b, W, H) || b[1] < 0.9) return false;
     if (comps.some((o) => (!o.frame || o.ledge) && o !== main && overlaps(b, bounds(o)))) return false;
     return !overlaps(b, bounds(main), 0.3);
   };
   const weights = Object.fromEntries(Object.entries(MIDDLE).map(([k, w]) => [k, TWISTY.has(k) || k === "shelf" ? w * lerp(0.5, 2, level) : w]));
-  weights.ledge = 1.2; // a short sand tray in mid-air: somewhere off the floor to come to rest
+  weights.ledge = 1.2 * (1 - 0.6 * level); // a short sand tray in mid-air: somewhere off the floor to come to rest
 
   // Middle pieces, placed on the object's actual path.
-  const nMiddle = Math.round(lerp(3, 6, level)) + rng.int(0, 1);
+  const nMiddle = Math.round(lerp(5, 9, level)) + rng.int(0, 2);
   let lastY = sy - 0.3;
   for (let k = 0; k < nMiddle; k++) {
-    const path = await mainPath(scene, 6);
-    const P = path.find((p) => p.f > 3 && p.y < lastY - rng.float(0.45, 1.2) && p.y > 1.7 && p.vy < 0.5 && p.x > 0.5 && p.x < W - 0.5);
+    const path = await mainPath(scene, 10);
+    const P = path.find((p) => p.f > 3 && p.y < lastY - rng.float(0.3, 0.9) && p.y > 1.5 && p.vy < 0.5 && p.x > 0.5 && p.x < W - 0.5);
     if (!P) break;
     for (let attempt = 0; attempt < 6; attempt++) {
       const type = rng.weighted(weights);
@@ -125,7 +126,7 @@ async function build(rng, level) {
 
   // Decoys: pieces placed anywhere free, not aimed at the path. Some get involved,
   // some don't; either way the picture doesn't give away which pieces matter.
-  const nDecoys = rng.int(0, Math.round(lerp(1, 3, level)));
+  const nDecoys = rng.int(2, Math.round(lerp(3, 6, level)));
   for (let k = 0; k < nDecoys; k++) {
     for (let attempt = 0; attempt < 8; attempt++) {
       const P = { x: rng.float(0.8, W - 0.8), y: rng.float(2, H - 1.5), vx: rng.float(-1, 1), vy: -1 };
@@ -147,17 +148,18 @@ async function check(scene, level) {
   const run = await simulate(scene, { maxSeconds: MAX_SECONDS });
   const W = scene.world.width, world = scene.world;
   if (run.outOfBounds.length) return { ok: false, reason: "something leaves the screen" };
-  if (run.meta.mainSettledSeconds === null || run.meta.mainSettledSeconds > MAX_SETTLE) return { ok: false, reason: "doesn't settle within 10 s" };
+  if (run.meta.mainSettledSeconds === null || run.meta.mainSettledSeconds > MAX_SETTLE) return { ok: false, reason: "doesn't settle in time" };
   const comps = scene.components, mainComp = comps.indexOf(mainOf(scene));
   const real = (i) => comps[i] && !comps[i].frame && comps[i].type !== "chute";
-  if (run.touched.filter(real).length < 2) return { ok: false, reason: "touches fewer than 2 pieces" };
+  const minTouched = 3 + Math.round(level);
+  if (run.touched.filter(real).length < minTouched) return { ok: false, reason: `touches fewer than ${minTouched} pieces` };
 
   // Freeze just before the tricky moment (the biggest kick from a real piece).
   const key = run.meta.keyFrame;
   if (key === null || !real(run.meta.keyComp)) return { ok: false, reason: "no tricky moment" };
   const freezeFrame = key - 12; // 0.4 s before
   if (freezeFrame < 24) return { ok: false, reason: "tricky moment too early" };
-  if (freezeFrame > 6 * 30) return { ok: false, reason: "too long to watch before the freeze" };
+  if (freezeFrame > 15 * 30) return { ok: false, reason: "too long to watch before the freeze" };
 
   const final = run.outcome.final;
   if (final.x < 0.6 || final.x > W - 0.6) return { ok: false, reason: "ends against a wall" };
