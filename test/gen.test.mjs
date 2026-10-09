@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { makeDay } from "../tools/gen/make-days.mjs";
-import { levelFor, MAX_SETTLE, CHAOS_LIMIT } from "../tools/gen/daily.mjs";
+import { levelFor, MAX_SETTLE, CHAOS_LIMIT } from "../public/js/gen/daily.js";
 import { unpackDay } from "../public/js/shared/codec.js";
 
 test("a day depends only on its date: generating it twice gives identical bytes", async () => {
@@ -12,9 +12,16 @@ test("a day depends only on its date: generating it twice gives identical bytes"
 });
 
 test("difficulty level rises by round and through the week", () => {
-  assert.ok(levelFor("2026-10-12", 0) < levelFor("2026-10-12", 1) && levelFor("2026-10-12", 1) < levelFor("2026-10-12", 2));
-  assert.ok(levelFor("2026-10-12", 2) < levelFor("2026-10-18", 2)); // Monday hard < Sunday hard
+  assert.ok(levelFor("2026-10-12", 0) < levelFor("2026-10-12", 1));
+  assert.ok(levelFor("2026-10-18", 0) < levelFor("2026-10-12", 1)); // even Sunday easy < Monday hard
+  assert.ok(levelFor("2026-10-12", 1) < levelFor("2026-10-18", 1)); // Monday hard < Sunday hard
   assert.ok(levelFor("2026-10-12", 0) < levelFor("2026-10-18", 0));
+});
+
+test("shipped files are exactly what the generator makes for their date", async () => {
+  const f = readdirSync(dir).filter((x) => /^\d{4}-\d{2}-\d{2}\.prd$/.test(x)).sort()[0];
+  const made = await makeDay(f.slice(0, 10));
+  assert.ok(Buffer.from(made).equals(readFileSync(new URL(f, dir))), `${f} differs from a fresh generation`);
 });
 
 const dir = new URL("../public/puzzles/", import.meta.url);
@@ -28,8 +35,15 @@ test("shipped days: 3 freeze-frame rounds, small files, fair and settled", () =>
   for (const d of shipped) {
     assert.equal(d.header.date, d.date);
     assert.ok(d.size < 200 * 1024);
-    assert.deepEqual(d.header.puzzles.map((p) => p.slot), ["easy", "medium", "hard"]);
+    assert.deepEqual(d.header.puzzles.map((p) => p.slot), ["easy", "hard", "bonus"]);
     d.header.puzzles.forEach((p, i) => {
+      if (p.slot === "bonus") {
+        assert.equal(p.format, "laser");
+        assert.ok(p.answer.bounces >= 3, `${d.date} laser bounces`);
+        const { x, y } = p.answer.hit, W = p.world.width, H = p.world.height;
+        assert.ok(Math.min(x, W - x, y, H - y) < 1e-6, `${d.date} laser ends on a wall`);
+        return;
+      }
       assert.equal(p.format, "freeze");
       assert.ok(Math.abs(p.world.width * 4 - p.world.height * 3) < 0.01, "3:4 arena");
       assert.ok(p.chaosSpread <= CHAOS_LIMIT, `${d.date} ${p.slot} chaos`);
@@ -48,7 +62,7 @@ test("shipped days: 3 freeze-frame rounds, small files, fair and settled", () =>
 test("no layout repeats across shipped rounds", () => {
   const seen = new Set();
   for (const d of shipped) for (const p of d.header.puzzles) {
-    const k = JSON.stringify(p.statics);
+    const k = JSON.stringify(p.statics ?? p.mirrors);
     assert.ok(!seen.has(k), `${d.date} ${p.slot} repeats a layout`);
     seen.add(k);
   }

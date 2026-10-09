@@ -30,18 +30,14 @@ function validateName(raw) {
 }
 
 // Only the fields a format uses, as plain numbers: nothing else from the client is stored.
-function cleanGuess(format, g) {
+function cleanGuess(g) {
   if (!g || typeof g !== 'object') return null;
-  const n = (x) => (typeof x === 'number' && Number.isFinite(x) ? Math.round(x * 1000) / 1000 : null);
-  switch (format) {
-    case 'stop': case 'freeze': return n(g.x) === null || n(g.y) === null ? null : { x: n(g.x), y: n(g.y) };
-    case 'height': return n(g.y) === null ? null : { y: n(g.y) };
-    case 'time': return n(g.t) === null ? null : { t: n(g.t) };
-    case 'dominoes': return Number.isInteger(g.n) && g.n >= 0 && g.n <= 50 ? { n: g.n } : null;
-    case 'place': return Number.isInteger(g.choice) && g.choice >= 0 && g.choice < 16 ? { choice: g.choice } : null;
-    default: return null;
-  }
+  const n = (x) => (typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < 1000 ? Math.round(x * 1000) / 1000 : null);
+  return n(g.x) === null || n(g.y) === null ? null : { x: n(g.x), y: n(g.y) };
 }
+
+// Which puzzles of the day each board scores.
+const BOARDS = { main: (h) => h.puzzles.filter((p) => p.slot !== 'bonus'), bonus: (h) => h.puzzles.filter((p) => p.slot === 'bonus') };
 
 // Day headers, cached per isolate (a day's file never changes once published).
 const headers = new Map();
@@ -107,15 +103,15 @@ async function verifyPlayer(env, playerId, token) {
   return !!row && row.token_hash === (await sha256Hex(token));
 }
 
-export async function fetchBoard(env, day, late, playerId) {
+export async function fetchBoard(env, day, board, late, playerId) {
   const { results } = await env.DB.prepare(
     `SELECT player_id, display_name, total, scores, submitted_at FROM results
-      WHERE day_key = ? AND is_late = ? ORDER BY total DESC, submitted_at ASC, id ASC`,
-  ).bind(day, late ? 1 : 0).all();
+      WHERE day_key = ? AND board = ? AND is_late = ? ORDER BY total DESC, submitted_at ASC, id ASC`,
+  ).bind(day, board, late ? 1 : 0).all();
   const rows = results ?? [];
   const view = (r, i) => ({ rank: i + 1, name: r.display_name, total: r.total, scores: JSON.parse(r.scores), you: r.player_id === playerId });
   const yi = playerId ? rows.findIndex((r) => r.player_id === playerId) : -1;
-  return { day, late: !!late, players: rows.length, top: rows.slice(0, BOARD_SIZE).map(view), you: yi >= BOARD_SIZE ? view(rows[yi], yi) : null };
+  return { day, board, late: !!late, players: rows.length, top: rows.slice(0, BOARD_SIZE).map(view), you: yi >= BOARD_SIZE ? view(rows[yi], yi) : null };
 }
 
 async function handleLeaderboard(request, env) {
@@ -123,7 +119,9 @@ async function handleLeaderboard(request, env) {
   const day = url.searchParams.get('day') || todayKey();
   if (!validDay(day)) return fail(request, env, 'bad_day', 'Invalid day.', 400);
   const late = url.searchParams.get('late') === '1';
-  return json(request, env, await fetchBoard(env, day, late, url.searchParams.get('playerId')));
+  const board = url.searchParams.get('board') || 'main';
+  if (!BOARDS[board]) return fail(request, env, 'bad_board', 'No such board.', 400);
+  return json(request, env, await fetchBoard(env, day, board, late, url.searchParams.get('playerId')));
 }
 
 async function handleSubmit(request, env, ip) {
@@ -137,23 +135,26 @@ async function handleSubmit(request, env, ip) {
   if (day > today) return fail(request, env, 'bad_day', "That day hasn't happened yet.", 400);
   const name = validateName(body.name);
   if (!name) return fail(request, env, 'bad_name', `Name must be 1-${MAX_NAME} characters.`, 400);
+  const board = body.board || 'main';
+  if (!BOARDS[board]) return fail(request, env, 'bad_board', 'No such board.', 400);
   const header = await dayHeader(env, day);
-  if (!header) return fail(request, env, 'no_puzzle', 'No puzzles for that day.', 404);
-  if (!Array.isArray(body.guesses) || body.guesses.length !== header.puzzles.length) return fail(request, env, 'bad_guesses', 'One guess per puzzle, please.', 400);
-  const guesses = header.puzzles.map((p, i) => cleanGuess(p.format, body.guesses[i]));
-  const scores = header.puzzles.map((p, i) => Math.round(scorePuzzle(p, guesses[i]) * 100) / 100);
+  if (!header) return fail(request, env, 'no_puzzle', "No puzzle file for that day, so its scores can't be checked.", 404);
+  const puzzles = BOARDS[board](header);
+  if (!Array.isArray(body.guesses) || body.guesses.length !== puzzles.length) return fail(request, env, 'bad_guesses', 'One guess per puzzle, please.', 400);
+  const guesses = puzzles.map((p, i) => cleanGuess(body.guesses[i]));
+  const scores = puzzles.map((p, i) => Math.round(scorePuzzle(p, guesses[i]) * 100) / 100);
   const total = Math.round(scores.reduce((s, x) => s + x, 0) * 100) / 100;
   const late = day !== today ? 1 : 0;
   try {
     await env.DB.prepare(
-      `INSERT INTO results (id, player_id, day_key, display_name, total, scores, guesses, submitted_at, is_late)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(crypto.randomUUID(), playerId, day, name, total, JSON.stringify(scores), JSON.stringify(guesses), new Date().toISOString(), late).run();
+      `INSERT INTO results (id, player_id, day_key, board, display_name, total, scores, guesses, submitted_at, is_late)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(crypto.randomUUID(), playerId, day, board, name, total, JSON.stringify(scores), JSON.stringify(guesses), new Date().toISOString(), late).run();
   } catch (e) {
     if (String(e).includes('UNIQUE')) return fail(request, env, 'already', "You've already submitted for this day.", 409);
     throw e;
   }
-  return json(request, env, { ok: true, late: !!late, scores, total, board: await fetchBoard(env, day, late, playerId) });
+  return json(request, env, { ok: true, late: !!late, scores, total, board: await fetchBoard(env, day, board, late, playerId) });
 }
 
 export default {

@@ -1,11 +1,16 @@
-// Predictle: the daily game. Loads the day's file, runs intro -> 3 puzzles -> results.
-import { unpackDay } from "./shared/codec.js";
+// Predictle: the daily game page.
+// Two freeze-frame rounds (easy, hard), then the laser bonus. Leaderboards for both,
+// yesterday's best, and an archive of every past day.
+import { unpackDay, decodeMotion } from "./shared/codec.js";
 import { MATERIALS } from "./shared/materials.js";
-import { scorePuzzle, points, emoji } from "./shared/scoring.js";
+import { scorePuzzle, points, emoji, perimeterPos, perimeterPoint } from "./shared/scoring.js";
+import { hypot } from "./shared/dmath.js";
 import { Renderer } from "./render.js";
+import { drawLaser, beamLength } from "./laser-draw.js";
 import * as api from "./api.js";
-import { todayUTC, pickDate, weekdayOf, dayFile } from "./shared/daily.js";
+import { todayUTC, pickDate, weekdayOf, dayFile, dayNumber, addDays, LAUNCH_DAY, msUntilNextDay } from "./shared/daily.js";
 
+// ---------------------------------------------------------------- tiny DOM helpers
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -17,63 +22,48 @@ const el = (tag, attrs = {}, ...kids) => {
   for (const k of kids.flat()) if (k != null && k !== false) e.append(k.nodeType ? k : String(k));
   return e;
 };
-
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const FORMAT_NAMES = {
-  stop: "Where does it stop?", freeze: "Freeze frame", height: "How high?",
-  dominoes: "Domino count", time: "Stopwatch", place: "Place the bumper",
-};
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const prettyDate = (d) => `${DAY_NAMES[weekdayOf(d)].slice(0, 3)} ${+d.slice(8)} ${MONTHS[+d.slice(5, 7) - 1]}`;
 const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
 
-// ---------------------------------------------------------------- storage (fails soft)
 const store = {
   get(k, d = null) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode: play on without saving */ } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked: play on without saving */ } },
 };
 
-// ---------------------------------------------------------------- day loading
-async function loadDay(date) {
-  const res = await fetch(`./${dayFile(date)}`, { cache: "no-cache" });
-  if (!res.ok) return null;
-  const gz = await res.arrayBuffer();
-  const raw = await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
-  return unpackDay(new Uint8Array(raw));
-}
-
-
-// ---------------------------------------------------------------- app
-const app = $("#app");
+// ---------------------------------------------------------------- which day
+const today = todayUTC();
 const date = pickDate(location.search, { local: isLocal });
-const weekday = weekdayOf(date);
-$("#date").textContent = `${DAY_NAMES[weekday]} ${date}`;
-buildLegend();
+const isArchive = date !== today;
+const saveKey = `predictle:v3:${date}`;
+const state = store.get(saveKey, { guesses: [], scores: [] });
+const mainDone = () => state.scores[0] != null && state.scores[1] != null;
+const bonusDone = () => state.scores[2] != null;
+const mainTotal = () => (state.scores[0] ?? 0) + (state.scores[1] ?? 0);
+const save = () => {
+  store.set(saveKey, state);
+  const h = store.get("predictle:history", {});
+  h[date] = { main: mainDone() ? mainTotal() : null, bonus: bonusDone() ? state.scores[2] : null };
+  store.set("predictle:history", h);
+};
 
-let day;
-try { day = await loadDay(date); } catch (e) { console.error(e); }
-if (!day) {
-  app.replaceChildren(el("section", { class: "card" }, el("h2", {}, "No puzzles for this day"),
-    el("p", {}, `There's no puzzle file for ${date}.`), await devDayPicker()));
-} else {
-  const saveKey = `predictle:${date}`;
-  const state = store.get(saveKey, { guesses: [], scores: [] });
-  const save = () => store.set(saveKey, state);
-  const next = state.scores.length;
-  if (next >= day.header.puzzles.length) showResults(day, state);
-  else if (next === 0) showIntro(day, state, save);
-  else playPuzzle(day, state, save, next);
+// ---------------------------------------------------------------- header, countdown, help
+$("#daynum").textContent = `#${dayNumber(date)}`;
+$("#date").textContent = prettyDate(date);
+function tickCountdown() {
+  if (todayUTC() !== today) { $("#countdown").replaceChildren(el("a", { href: "./" }, "New puzzles: refresh")); return; }
+  const s = Math.floor(msUntilNextDay() / 1000), pad = (n) => String(n).padStart(2, "0");
+  $("#countdown").textContent = `next in ${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
 }
+tickCountdown();
+setInterval(tickCountdown, 1000);
+$("#help-open").addEventListener("click", () => $("#help").showModal());
+$("#help-close").addEventListener("click", () => $("#help").close());
+buildLegend($("#legend"));
+if (!store.get("predictle:seen-help")) { store.set("predictle:seen-help", true); $("#help").showModal(); }
 
-async function devDayPicker() {
-  if (!isLocal) return null;
-  try {
-    const idx = await (await fetch("./puzzles/index.json", { cache: "no-cache" })).json();
-    return el("p", { class: "dev" }, "Local test days: ",
-      ...Object.keys(idx.days).sort().map((d) => el("a", { href: `?date=${d}` }, d, " ")));
-  } catch { return null; }
-}
-
-function buildLegend() {
-  const box = $("#legend");
+function buildLegend(box) {
   for (const [name, m] of Object.entries(MATERIALS)) {
     const sw = el("canvas", { width: 44, height: 44, "aria-hidden": "true" });
     box.append(el("span", {}, sw, `${m.label} `, el("small", {}, m.note)));
@@ -84,83 +74,148 @@ function buildLegend() {
   }
 }
 
-// ---------------------------------------------------------------- intro
-async function showIntro(day, state, save) {
-  const ps = day.header.puzzles;
-  app.replaceChildren(el("section", { class: "card intro" },
-    el("h2", {}, "Three contraptions. Watch, freeze, predict."),
-    el("p", {}, "Each round plays until just before the tricky part, then freezes. ",
-      "Tap where A will come to rest, then watch what really happens. ",
-      "You score 0–100: the closer, the more. Rounds get harder through the day, and days get harder through the week (Monday gentlest, Sunday toughest)."),
-    el("ol", { class: "plan" }, ps.map((p, k) => el("li", {}, el("b", {}, `Round ${k + 1}`), ` · ${p.slot}`))),
-    el("p", { class: "muted" }, "Rules of this world: sand stops anything that lands in it. Ice is slippery whatever touches it, rubber bounces whatever hits it, steel is heavy. ",
-      "Fans push anything inside their zone; conveyor belts carry things along."),
-    el("button", { class: "primary big", onclick: () => playPuzzle(day, state, save, 0) }, "Start"),
-    await devDayPicker(),
+// ---------------------------------------------------------------- loading a day
+async function fetchDay(d) {
+  const res = await fetch(`./${dayFile(d)}`, { cache: "no-cache" });
+  if (!res.ok) return null;
+  const gz = await res.arrayBuffer();
+  const raw = await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+  return unpackDay(new Uint8Array(raw));
+}
+
+/** No file for this day: build it right here (identical to what the file would hold). */
+function buildInBrowser(d, onProgress) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL("./gen/worker.js", import.meta.url), { type: "module" });
+    w.onmessage = ({ data }) => {
+      if (data.progress) return onProgress(data.progress);
+      w.terminate();
+      if (data.error) return reject(new Error(data.error));
+      let k = 0;
+      const motions = data.header.puzzles.map((p) => p.recordings.map((r) => decodeMotion(new Uint8Array(data.streams[k++]), p.bodies.length, r.frameCount)));
+      resolve({ header: data.header, motions });
+    };
+    w.onerror = (e) => { w.terminate(); reject(new Error(e.message)); };
+    w.postMessage({ date: d });
+  });
+}
+
+const app = $("#app");
+let day;
+try {
+  day = new URLSearchParams(location.search).has("build") ? null : await fetchDay(date);
+  if (!day) {
+    const status = el("p", { class: "muted" }, "Starting…");
+    app.replaceChildren(el("section", { class: "card" }, el("h2", {}, "Building the contraptions"),
+      el("p", {}, "There's no ready-made file for this day, so your browser is generating it from the date. Everyone gets exactly the same puzzles. This can take a little while."),
+      status));
+    day = await buildInBrowser(date, ({ round, attempt }) => {
+      status.textContent = round < 2 ? `Round ${round + 1}: trying design ${attempt + 1}…` : "Bonus laser puzzle…";
+    });
+  }
+} catch (e) {
+  console.error(e);
+  app.replaceChildren(el("section", { class: "card" }, el("h2", {}, "Couldn't load the puzzles"), el("p", {}, String(e.message ?? e))));
+}
+if (day) {
+  showMain();
+  renderSideCards();
+}
+
+// ---------------------------------------------------------------- main area
+function showMain() {
+  if (!mainDone()) {
+    if (state.scores[0] == null && !state.started) showIntro();
+    else playRound(state.scores[0] == null ? 0 : 1);
+  } else if (state.playingBonus && !bonusDone()) playLaser();
+  else showSummary();
+}
+
+function archiveBanner() {
+  if (!isArchive) return "";
+  return el("p", { class: "banner" }, `Archive: #${dayNumber(date)}, ${prettyDate(date)}. Scores go on that day's "played later" board. `,
+    el("a", { href: "./" }, "Back to today"));
+}
+
+function showIntro() {
+  const tone = ["the gentlest day", "still gentle", "a bit trickier", "midweek", "getting tough", "tough", "the toughest day"][weekdayOf(date)];
+  app.replaceChildren(archiveBanner(), el("section", { class: "card intro" },
+    el("h2", {}, "Watch, freeze, predict."),
+    el("p", {}, "Each contraption plays until just before the tricky part, then freezes. Tap where ", el("b", {}, "A"), " will come to rest, then watch what really happens."),
+    el("ol", { class: "plan" },
+      el("li", {}, el("b", {}, "Round 1"), " · easy"),
+      el("li", {}, el("b", {}, "Round 2"), " · hard"),
+      el("li", {}, el("b", {}, "Bonus"), " · where does the laser hit the wall?")),
+    el("p", { class: "muted" }, `${DAY_NAMES[weekdayOf(date)]}: ${tone} of the week.`),
+    el("button", { class: "primary big", onclick: () => { state.started = true; save(); playRound(0); } }, "Start"),
   ));
 }
 
-// ---------------------------------------------------------------- one puzzle
-function playPuzzle(day, state, save, i) {
+// ---------------------------------------------------------------- shared stage (canvas + skip + slow-mo badge)
+function makeStage(head, question) {
+  const canvas = el("canvas", { class: "view", "aria-label": "Puzzle picture" });
+  const badge = el("div", { class: "slowmo", hidden: true }, "Slow motion");
+  const skip = el("button", { class: "skip", hidden: true }, "Skip ⏭");
+  const prompt = el("p", { class: "question" }, question);
+  const controls = el("div", { class: "controls" });
+  const result = el("div", { class: "result", hidden: true });
+  app.replaceChildren(archiveBanner(), el("section", { class: "puzzle" }, head, prompt, el("div", { class: "stage" }, canvas, badge, skip), controls, result));
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  return { canvas, badge, skip, prompt, controls, result };
+}
+
+/** Tap/drag to place a guess, with a magnifier under the finger on touch screens. */
+function tapInput(canvas, r, active, onPoint) {
+  let dragging = false;
+  const at = (e) => {
+    const w = r.toWorld(e.clientX, e.clientY);
+    onPoint(w);
+    r.loupe = e.pointerType === "touch" ? { x: w.px, y: w.py } : null;
+  };
+  canvas.addEventListener("pointerdown", (e) => { if (!active()) return; dragging = true; canvas.setPointerCapture(e.pointerId); at(e); });
+  canvas.addEventListener("pointermove", (e) => { if (dragging && active()) at(e); });
+  const up = () => { dragging = false; r.loupe = null; };
+  canvas.addEventListener("pointerup", up);
+  canvas.addEventListener("pointercancel", up);
+}
+
+function resultBox(result, score, detailText, buttons) {
+  result.hidden = false;
+  result.replaceChildren(
+    el("div", { class: "score" }, el("span", { class: "big-num" }, String(points(score))), el("span", { class: "of" }, "/100 "), emoji(score)),
+    el("p", {}, detailText),
+    el("div", { class: "controls" }, buttons));
+  result.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// ---------------------------------------------------------------- a freeze-frame round
+function playRound(i) {
   const p = day.header.puzzles[i];
   const W = p.world.width, H = p.world.height;
   const mainK = p.bodies.findIndex((b) => b.role === "main");
   const s0 = p.bodies[mainK].shapes[0];
   const mainR = s0.t === "circle" ? s0.r : Math.max(s0.hw, s0.hh);
+  const head = el("div", { class: "puzzle-head" }, el("span", { class: "step" }, `Round ${i + 1} of 2`), el("span", { class: `slot ${p.slot}` }, p.slot));
+  const { canvas, badge, skip, prompt, controls, result } = makeStage(head, "Watch the start…");
+  const meta = { world: p.world, fps: p.fps, frameCount: p.recordings[0].frameCount, keyFrame: p.recordings[0].keyFrame, statics: p.statics, decor: p.decor, bodies: p.bodies };
+  const r = new Renderer(canvas, meta, day.motions[i][0]);
 
-  // Which recording plays: "place" has one per choice.
-  let rec = 0;
-  const metaFor = (k) => ({
-    world: p.world, fps: p.fps, frameCount: p.recordings[k ?? 0].frameCount, keyFrame: p.recordings[k ?? 0].keyFrame,
-    // "place": k = the chosen spot (null while predicting: no bumper placed yet)
-    statics: p.format === "place" && k !== null ? [...p.statics, { t: "circle", x: p.candidates[k].x, y: p.candidates[k].y, r: p.candidates[k].r, m: "rubber" }] : p.statics,
-    decor: p.decor, bodies: p.bodies,
-  });
+  let phase = "watch";            // watch -> predict -> play -> done
+  let frame = 0, wall = 0, playing = true, prev = null, slow = null, guess = null, ended = null;
+  const last = meta.frameCount - 1, freezeAt = p.freezeFrame;
 
-  const canvas = el("canvas", { class: "view", "aria-label": "Physics contraption" });
-  // Skip: while watching the start, jump to the freeze; while watching the outcome, jump to the end.
-  const skipBtn = el("button", { class: "skip", hidden: true, onclick: () => {
-    if (phase === "predict") frame = freezeAt;
-    else frame = last();
-  } }, "Skip ⏭");
-  const badge = el("div", { class: "slowmo", hidden: true }, "Slow motion");
-  const prompt = el("p", { class: "question" }, p.question);
-  const controls = el("div", { class: "controls" });
-  const result = el("div", { class: "result", hidden: true });
-  app.replaceChildren(el("section", { class: "puzzle" },
-    el("div", { class: "puzzle-head" },
-      el("span", { class: "step" }, `Round ${i + 1} of ${day.header.puzzles.length}`),
-      el("span", { class: `slot ${p.slot}` }, p.slot),
-      p.format !== "freeze" ? el("span", { class: "fmt" }, FORMAT_NAMES[p.format]) : null),
-    prompt,
-    el("div", { class: "stage" }, canvas, badge, skipBtn),
-    controls, result));
-
-  const r = new Renderer(canvas, metaFor(p.format === "place" ? null : 0), day.motions[i][0]);
-  const setRecording = (k) => { rec = k; r.meta = metaFor(k); r.motion = day.motions[i][k]; };
-
-  // ------------------------------------------------ playback state
-  let phase = "predict";          // predict -> play -> done
-  let frame = 0, wall = 0, playing = false, prev = null;
-  let slow = null;                // [from, to] frames played at 0.3x
-  let guess = null;
-  let ended = null;
-  const last = () => r.meta.frameCount - 1;
-  const freezeAt = p.format === "freeze" ? p.freezeFrame : 0;
-  if (p.format === "freeze") { playing = true; prompt.textContent = "Watch the start…"; }
-
+  skip.onclick = () => { frame = phase === "watch" ? freezeAt : last; };
   function tick(now) {
     if (!canvas.isConnected) return;
     const dt = prev === null ? 0 : Math.min(0.1, (now - prev) / 1000);
-    prev = now;
-    wall += dt;
+    prev = now; wall += dt;
     if (playing) {
       const inSlow = slow && frame >= slow[0] && frame <= slow[1];
       badge.hidden = !inSlow;
-      skipBtn.hidden = false;
+      skip.hidden = false;
       frame += dt * p.fps * (inSlow ? 0.3 : 1);
-      if (phase === "predict" && frame >= freezeAt) { frame = freezeAt; playing = false; skipBtn.hidden = true; prompt.textContent = p.question; }
-      if (frame >= last()) { frame = last(); playing = false; badge.hidden = true; skipBtn.hidden = true; ended?.(); ended = null; }
+      if (phase === "watch" && frame >= freezeAt) { frame = freezeAt; playing = false; skip.hidden = true; phase = "predict"; prompt.textContent = p.question; showInput(); }
+      if (phase !== "watch" && frame >= last) { frame = last; playing = false; badge.hidden = true; skip.hidden = true; ended?.(); ended = null; }
     }
     r.draw(frame, wall);
     requestAnimationFrame(tick);
@@ -168,292 +223,248 @@ function playPuzzle(day, state, save, i) {
   new ResizeObserver(() => r.resize()).observe(canvas);
   requestAnimationFrame(tick);
 
-  function playFrom(start, { slowmo = true } = {}) {
+  const playFrom = (start, slowmo = true) => {
     frame = start;
-    const k = r.meta.keyFrame;
+    const k = meta.keyFrame;
     slow = slowmo && k != null ? [k - p.fps * 0.5, k + p.fps * 0.7] : null;
     playing = true;
     return new Promise((res) => (ended = res));
-  }
-
-  // ------------------------------------------------ overlay: hints, guess, answer
-  const answerShown = () => phase === "done";
-  r.overlay = (ctx, f, t) => {
-    const px = 1 / r.scale;
-    if (phase === "predict" && f === freezeAt) {
-      // ring around ball A and its launch arrow, so it's clear what moves and how
-      const pose = r.motion.bodies[mainK];
-      const bx = pose.x[Math.round(f)], by = pose.y[Math.round(f)];
-      ctx.strokeStyle = "rgba(15,143,122,0.9)";
-      ctx.lineWidth = 3 * px;
-      ctx.beginPath(); ctx.arc(bx, by, mainR + 0.08 + 0.04 * Math.sin(t * 5), 0, 7); ctx.stroke();
-      if (f === 0 && (p.launch.vx || p.launch.vy)) arrow(ctx, bx, by, p.launch.vx, p.launch.vy, px);
-    }
-    if (p.highlight != null && phase === "predict") highlightComp(ctx, p.highlight, px, t);
-    if (p.format === "place") drawCandidates(ctx, px);
-    drawGuess(ctx, px);
-    if (answerShown()) drawAnswer(ctx, px);
   };
-
-  function arrow(ctx, x, y, vx, vy, px) {
-    const s = Math.hypot(vx, vy), L = 0.35 + 0.25 * s, ux = vx / s, uy = vy / s;
-    const x0 = x + ux * (mainR + 0.05), y0 = y + uy * (mainR + 0.05), x1 = x0 + ux * L, y1 = y0 + uy * L;
-    ctx.strokeStyle = "#0f8f7a"; ctx.fillStyle = "#0f8f7a"; ctx.lineWidth = 4 * px;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x1 + ux * 0.14, y1 + uy * 0.14); ctx.lineTo(x1 - uy * 0.1, y1 + ux * 0.1); ctx.lineTo(x1 + uy * 0.1, y1 - ux * 0.1); ctx.fill();
-  }
-
-  function highlightComp(ctx, comp, px, t) {
-    ctx.strokeStyle = `rgba(255, 170, 0, ${0.6 + 0.3 * Math.sin(t * 4)})`;
-    ctx.lineWidth = 6 * px;
-    for (const s of r.meta.statics) if (s.comp === comp) outline(ctx, s);
-    r.meta.bodies.forEach((b, k) => {
-      if (b.comp !== comp) return;
-      const q = r.motion.bodies[k], fi = Math.round(frame);
-      ctx.save(); ctx.translate(q.x[fi], q.y[fi]); ctx.rotate(q.a[fi]);
-      for (const s of b.shapes) outline(ctx, s);
-      ctx.restore();
-    });
-  }
-  function outline(ctx, s) {
-    ctx.beginPath();
-    if (s.t === "circle") ctx.arc(s.x, s.y, s.r + 0.05, 0, 7);
-    else if (s.t === "box") { ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.a ?? 0); ctx.rect(-s.hw - 0.05, -s.hh - 0.05, 2 * s.hw + 0.1, 2 * s.hh + 0.1); ctx.restore(); }
-    else if (s.t === "path") { ctx.moveTo(...s.pts[0]); for (const q of s.pts.slice(1)) ctx.lineTo(...q); }
-    ctx.stroke();
-  }
-
-  function star(ctx, x, y, R, fill) {
-    ctx.beginPath();
-    for (let k = 0; k < 10; k++) { const a = Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? R * 0.45 : R; ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); }
-    ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
-  }
-
-  function drawCandidates(ctx, px) {
-    star(ctx, p.answer.target.x, p.answer.target.y, 0.32, "rgba(255, 176, 0, 0.95)");
-    if (phase !== "predict") return;
-    p.candidates.forEach((c, k) => {
-      const chosen = guess?.choice === k;
-      ctx.setLineDash(chosen ? [] : [6 * px, 5 * px]);
-      ctx.lineWidth = (chosen ? 4 : 2.5) * px;
-      ctx.strokeStyle = chosen ? MATERIALS.rubber.ink : "rgba(140, 29, 69, 0.75)";
-      ctx.fillStyle = chosen ? "rgba(224, 69, 123, 0.85)" : "rgba(224, 69, 123, 0.12)";
-      ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.save(); ctx.translate(c.x, c.y); ctx.scale(1, -1);
-      ctx.fillStyle = chosen ? "#fff" : "#8c1d45"; ctx.font = `bold ${c.r}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(String(k + 1), 0, 0); ctx.restore();
-    });
-  }
 
   const GUESS = "#d9480f", ANSWER = "#1a7f37";
-  function drawGuess(ctx, px) {
-    if (!guess) return;
-    ctx.strokeStyle = GUESS; ctx.fillStyle = GUESS; ctx.lineWidth = 3 * px;
-    if (guess.x != null) {
-      ctx.setLineDash([5 * px, 4 * px]);
-      ctx.beginPath(); ctx.arc(guess.x, guess.y, mainR, 0, 7); ctx.stroke();
-      ctx.setLineDash([]);
+  r.overlay = (ctx, f, t) => {
+    const px = 1 / r.scale;
+    if (phase === "predict") {
+      const q = r.motion.bodies[mainK], fi = Math.round(f);
+      ctx.strokeStyle = "rgba(15,143,122,0.9)"; ctx.lineWidth = 3 * px;
+      ctx.beginPath(); ctx.arc(q.x[fi], q.y[fi], mainR + 0.08 + 0.04 * Math.sin(t * 5), 0, 7); ctx.stroke();
+    }
+    if (guess) {
+      ctx.strokeStyle = GUESS; ctx.lineWidth = 3 * px;
+      ctx.setLineDash([5 * px, 4 * px]); ctx.beginPath(); ctx.arc(guess.x, guess.y, mainR, 0, 7); ctx.stroke(); ctx.setLineDash([]);
       const a = mainR * 0.6;
       ctx.beginPath(); ctx.moveTo(guess.x - a, guess.y - a); ctx.lineTo(guess.x + a, guess.y + a); ctx.moveTo(guess.x - a, guess.y + a); ctx.lineTo(guess.x + a, guess.y - a); ctx.stroke();
-    } else if (guess.y != null && p.format === "height") {
-      hLine(ctx, guess.y, GUESS, "your guess", px);
     }
-  }
-  function hLine(ctx, y, colour, label, px) {
-    ctx.strokeStyle = colour; ctx.lineWidth = 3 * px; ctx.setLineDash([10 * px, 6 * px]);
-    ctx.beginPath(); ctx.moveTo(0.15, y); ctx.lineTo(W - 0.15, y); ctx.stroke(); ctx.setLineDash([]);
-    ctx.save(); ctx.translate(0.3, y + 0.08); ctx.scale(1, -1); ctx.fillStyle = colour; ctx.font = `600 ${0.28}px system-ui`; ctx.fillText(label, 0, 0); ctx.restore();
-  }
-  function drawAnswer(ctx, px) {
-    const a = p.answer;
-    if (p.format === "stop" || p.format === "freeze") {
+    if (phase === "done") {
+      const fin = p.answer.final;
       ctx.strokeStyle = ANSWER; ctx.lineWidth = 4 * px;
-      ctx.beginPath(); ctx.arc(a.final.x, a.final.y, mainR + 0.1, 0, 7); ctx.stroke();
-      if (guess) { ctx.setLineDash([4 * px, 4 * px]); ctx.beginPath(); ctx.moveTo(guess.x, guess.y); ctx.lineTo(a.final.x, a.final.y); ctx.stroke(); ctx.setLineDash([]); }
+      ctx.beginPath(); ctx.arc(fin.x, fin.y, mainR + 0.1, 0, 7); ctx.stroke();
+      if (guess) { ctx.setLineDash([4 * px, 4 * px]); ctx.beginPath(); ctx.moveTo(guess.x, guess.y); ctx.lineTo(fin.x, fin.y); ctx.stroke(); ctx.setLineDash([]); }
     }
-    if (p.format === "height") hLine(ctx, a.peak, ANSWER, "actual peak", px);
-  }
-
-  // ------------------------------------------------ input per format
-  const lockBtn = el("button", { class: "primary", disabled: true, onclick: () => lockIn() }, "Lock in");
-  const clearBtn = el("button", { onclick: () => { guess = null; lockBtn.disabled = true; refreshReadout(); } }, "Clear");
-  const readout = el("span", { class: "readout" });
-  const refreshReadout = () => {
-    if (p.format === "height") readout.textContent = guess ? `${guess.y.toFixed(1)} m up` : "Tap or drag on the picture";
-    else if (p.format === "stop" || p.format === "freeze") readout.textContent = guess ? "Drag to adjust" : "Tap where it will stop";
-    else if (p.format === "place") readout.textContent = guess ? `Bumper ${guess.choice + 1}` : "Tap a dashed circle";
   };
 
-  if (["stop", "freeze", "height", "place"].includes(p.format)) {
-    let dragging = false;
-    const at = (e) => {
-      const w = r.toWorld(e.clientX, e.clientY);
-      const x = Math.min(W - 0.2, Math.max(0.2, w.x)), y = Math.min(H - 0.2, Math.max(0.2, w.y));
-      if (p.format === "height") guess = { y };
-      else if (p.format === "place") {
-        let best = null, bd = Infinity;
-        p.candidates.forEach((c, k) => { const d = Math.hypot(c.x - w.x, c.y - w.y); if (d < bd) { bd = d; best = k; } });
-        if (bd < 1.2) guess = { choice: best };
-      } else guess = { x, y };
-      lockBtn.disabled = !guess;
-      refreshReadout();
-      if (e.pointerType === "touch" && p.format !== "place") r.loupe = { x: w.px, y: w.py };
-    };
-    canvas.addEventListener("pointerdown", (e) => { if (phase !== "predict" || playing) return; dragging = true; canvas.setPointerCapture(e.pointerId); at(e); });
-    canvas.addEventListener("pointermove", (e) => { if (dragging) at(e); });
-    const up = () => { dragging = false; r.loupe = null; };
-    canvas.addEventListener("pointerup", up);
-    canvas.addEventListener("pointercancel", up);
-    controls.append(readout, clearBtn, lockBtn);
-    refreshReadout();
-  } else if (p.format === "dominoes") {
-    const n = p.answer.total;
-    let v = Math.ceil(n / 2);
-    const out = el("output", { class: "count" }, String(v));
-    const set = (x) => { v = Math.max(0, Math.min(n, x)); out.textContent = String(v); guess = { n: v }; lockBtn.disabled = false; };
-    guess = { n: v }; lockBtn.disabled = false;
-    controls.append(el("div", { class: "stepper" },
-      el("button", { "aria-label": "fewer", onclick: () => set(v - 1) }, "−"), out,
-      el("button", { "aria-label": "more", onclick: () => set(v + 1) }, "+"),
-      el("span", { class: "muted" }, ` of ${n} dominoes`)), lockBtn);
-  } else if (p.format === "time") {
-    const out = el("output", { class: "count" }, "3.0 s");
-    const slider = el("input", { type: "range", min: 0.5, max: 12, step: 0.1, value: 3, "aria-label": "seconds" });
-    slider.addEventListener("input", () => { guess = { t: +slider.value }; out.textContent = `${(+slider.value).toFixed(1)} s`; lockBtn.disabled = false; });
-    guess = { t: 3 }; lockBtn.disabled = false;
-    controls.append(el("div", { class: "slider" }, slider, out), lockBtn);
-  }
-  if (p.format === "freeze") controls.prepend(el("button", { onclick: () => { if (phase === "predict") { frame = 0; playing = true; prompt.textContent = "Watch the start…"; } } }, "Watch again"));
+  const lockBtn = el("button", { class: "primary", disabled: true, onclick: () => lockIn() }, "Lock in");
+  const readout = el("span", { class: "readout" }, "Tap where it will stop");
+  const clearBtn = el("button", { onclick: () => { guess = null; lockBtn.disabled = true; readout.textContent = "Tap where it will stop"; } }, "Clear");
+  const again = el("button", { onclick: () => { if (phase === "predict") { phase = "watch"; prompt.textContent = "Watch the start…"; controls.replaceChildren(); playFrom(0, false); } } }, "Watch again");
+  function showInput() { controls.replaceChildren(again, readout, clearBtn, lockBtn); }
+  tapInput(canvas, r, () => phase === "predict", (w) => {
+    guess = { x: Math.min(W - 0.2, Math.max(0.2, w.x)), y: Math.min(H - 0.2, Math.max(0.2, w.y)) };
+    lockBtn.disabled = false; readout.textContent = "Drag to adjust";
+  });
 
-  // ------------------------------------------------ play and score
-  let timer = null;
   async function lockIn() {
     if (!guess || phase !== "predict") return;
     phase = "play";
     controls.replaceChildren(el("span", { class: "muted" }, "Watch…"));
-    if (p.format === "place") setRecording(guess.choice);
-    if (p.format === "time") {
-      timer = el("div", { class: "stopwatch" }, "0.0 s");
-      controls.replaceChildren(timer);
-    }
-    const startFrame = p.format === "freeze" ? freezeAt : 0;
-    const t0 = performance.now();
-    if (timer) {
-      const floorF = Math.round(p.answer.seconds * p.fps);
-      const id = setInterval(() => {
-        const f = Math.min(frame, floorF);
-        timer.textContent = `${(f / p.fps).toFixed(1)} s${frame >= floorF ? " · floor!" : ""}`;
-        if (!canvas.isConnected) clearInterval(id);
-      }, 50);
-    }
-    await playFrom(startFrame);
+    await playFrom(freezeAt);
     phase = "done";
     const score = scorePuzzle(p, guess);
-    state.guesses[i] = guess;
-    state.scores[i] = score;
-    save();
-    showResult(score);
-  }
-
-  function detail(score) {
-    const a = p.answer;
-    switch (p.format) {
-      case "stop": case "freeze": {
-        const d = Math.hypot(guess.x - a.final.x, guess.y - a.final.y);
-        return `You were ${d.toFixed(2)} m from where it stopped. (0 points is the worst spot in the whole arena.)`;
-      }
-      case "height": return `It peaked ${a.peak.toFixed(2)} m up; you said ${guess.y.toFixed(2)} m.`;
-      case "dominoes": return `${a.fallen} of ${a.total} fell; you said ${guess.n}.`;
-      case "time": return `It touched the floor after ${a.seconds.toFixed(1)} s; you said ${guess.t.toFixed(1)} s.`;
-      case "place": return guess.choice === a.solution ? "Bullseye: that's the spot." : `Bumper ${a.solution + 1} was the one. Yours stopped ${Math.hypot(a.finals[guess.choice].x - a.target.x, a.finals[guess.choice].y - a.target.y).toFixed(2)} m from the star.`;
-    }
-  }
-
-  function showResult(score) {
-    result.hidden = false;
-    result.replaceChildren(
-      el("div", { class: "score" }, el("span", { class: "big-num" }, String(points(score))), el("span", { class: "of" }, "/100 "), emoji(score)),
-      el("p", {}, detail(score)),
-      el("div", { class: "controls" },
-        el("button", { onclick: () => { const k = r.meta.keyFrame ?? 0; playFrom(Math.max(0, k - p.fps * 1.2)); } }, "Replay key moment"),
-        el("button", { onclick: () => playFrom(0, { slowmo: false }) }, "Replay all"),
-        el("button", { class: "primary", onclick: () => {
-          if (i + 1 < day.header.puzzles.length) playPuzzle(day, state, save, i + 1);
-          else showResults(day, state);
-        } }, i + 1 < day.header.puzzles.length ? "Next puzzle" : "See results")));
+    state.guesses[i] = guess; state.scores[i] = score; save();
+    const d = hypot(guess.x - p.answer.final.x, guess.y - p.answer.final.y);
     controls.replaceChildren();
-    result.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    resultBox(result, score, `You were ${d.toFixed(2)} m from where it stopped.`, [
+      el("button", { onclick: () => playFrom(Math.max(0, (meta.keyFrame ?? 0) - p.fps * 1.2)) }, "Replay key moment"),
+      el("button", { onclick: () => playFrom(0, false) }, "Replay all"),
+      el("button", { class: "primary", onclick: () => (i === 0 ? playRound(1) : (showSummary(), renderSideCards())) }, i === 0 ? "Round 2" : "See results"),
+    ]);
   }
 }
 
-// ---------------------------------------------------------------- results
-function updateStreak(date, total) {
+// ---------------------------------------------------------------- the laser bonus
+function playLaser() {
+  const p = day.header.puzzles[2];
+  const world = p.world;
+  const head = el("div", { class: "puzzle-head" }, el("span", { class: "step" }, "Bonus"), el("span", { class: "slot bonus" }, "laser"));
+  const { canvas, skip, prompt, controls, result } = makeStage(head, p.question);
+  void prompt;
+  const r = new Renderer(canvas, { world, fps: 30, frameCount: 1, keyFrame: null, statics: [], decor: [], bodies: [] }, { bodies: [] });
+  const total = beamLength(p.answer.path);
+  const STUB = 0.7; // how much beam you see before you guess
+  let phase = "predict", shown = STUB, guess = null, prev = null, wall = 0, ended = null;
+  const speed = Math.max(4, total / 4.5); // m/s: the whole beam in at most ~4.5 s
+
+  skip.onclick = () => { shown = total; };
+  function tick(now) {
+    if (!canvas.isConnected) return;
+    const dt = prev === null ? 0 : Math.min(0.1, (now - prev) / 1000);
+    prev = now; wall += dt;
+    if (shown < total && phase !== "predict") {
+      skip.hidden = false;
+      shown = Math.min(total, shown + dt * speed);
+      if (shown >= total) { skip.hidden = true; ended?.(); ended = null; }
+    }
+    r.draw(0, wall);
+    requestAnimationFrame(tick);
+  }
+  new ResizeObserver(() => r.resize()).observe(canvas);
+  requestAnimationFrame(tick);
+
+  r.overlay = (ctx, _f, t) => drawLaser(ctx, p, { px: 1 / r.scale, shown, guess, answer: phase === "done" && shown >= total ? p.answer.hit : null, time: t });
+
+  const lockBtn = el("button", { class: "primary", disabled: true, onclick: () => lockIn() }, "Lock in");
+  const readout = el("span", { class: "readout" }, "Tap the wall where the beam will hit");
+  controls.append(readout, el("button", { onclick: () => { guess = null; lockBtn.disabled = true; } }, "Clear"), lockBtn);
+  tapInput(canvas, r, () => phase === "predict", (w) => {
+    guess = perimeterPoint(perimeterPos(w, world), world); // snap to the nearest wall
+    lockBtn.disabled = false; readout.textContent = "Drag along the wall to adjust";
+  });
+
+  async function lockIn() {
+    if (!guess || phase !== "predict") return;
+    phase = "play";
+    controls.replaceChildren(el("span", { class: "muted" }, "Firing…"));
+    await new Promise((res) => (ended = res));
+    phase = "done";
+    const score = scorePuzzle(p, guess);
+    state.guesses[2] = guess; state.scores[2] = score; state.playingBonus = false; save();
+    const P = 2 * (world.width + world.height), a = perimeterPos(guess, world), b = perimeterPos(p.answer.hit, world);
+    const miss = Math.min(Math.abs(a - b), P - Math.abs(a - b));
+    controls.replaceChildren();
+    resultBox(result, score, `The beam bounced ${p.answer.bounces} times. You were ${miss.toFixed(2)} m away, measured along the wall.`, [
+      el("button", { onclick: () => { shown = STUB; } }, "Fire again"),
+      el("button", { class: "primary", onclick: () => { showSummary(); renderSideCards(); } }, "See results"),
+    ]);
+  }
+}
+
+// ---------------------------------------------------------------- summary
+function shareText() {
+  const main = `${emoji(state.scores[0])}${emoji(state.scores[1])} ${points(mainTotal())}/200`;
+  const bonus = bonusDone() ? ` · ⚡${emoji(state.scores[2])} ${points(state.scores[2])}` : "";
+  return `Predictle #${dayNumber(date)} ${main}${bonus}\n${location.origin}${location.pathname}${isArchive ? `?date=${date}` : ""}`;
+}
+
+function streak() {
   const h = store.get("predictle:history", {});
-  h[date] = Math.round(total);
-  store.set("predictle:history", h);
-  let streak = 0;
-  for (let d = new Date(`${todayUTC()}T00:00:00Z`); h[d.toISOString().slice(0, 10)] != null; d = new Date(d - 864e5)) streak++;
-  return { streak, played: Object.keys(h).length };
+  let s = 0;
+  for (let d = today; h[d]?.main != null; d = addDays(d, -1)) s++;
+  return { streak: s, played: Object.values(h).filter((x) => x.main != null).length };
 }
 
-function showResults(day, state) {
-  const ps = day.header.puzzles;
-  const total = state.scores.reduce((s, x) => s + x, 0);
-  const line = state.scores.map(emoji).join("");
-  const { streak, played } = updateStreak(day.header.date, total);
-  const url = `${location.origin}${location.pathname}`;
-  const share = `Predictle ${day.header.date} ${line} ${points(total)}/300\n${url}`;
-  const copyBtn = el("button", { class: "primary", onclick: async () => {
-    try { await navigator.clipboard.writeText(share); copyBtn.textContent = "Copied!"; } catch { copyBtn.textContent = "Copy failed: select the text"; }
+function showSummary() {
+  const share = el("pre", { class: "share" }, shareText());
+  const copy = el("button", { class: "primary", onclick: async () => {
+    try { await navigator.clipboard.writeText(shareText()); copy.textContent = "Copied!"; } catch { copy.textContent = "Select the text to copy"; }
   } }, "Copy result");
-  app.replaceChildren(el("section", { class: "card" },
-    el("h2", {}, `${points(total)} / 300 `, line),
-    el("ul", { class: "scores" }, ps.map((p, k) => el("li", {}, el("span", {}, `${FORMAT_NAMES[p.format]} · ${p.slot}`), el("b", {}, `${points(state.scores[k])} ${emoji(state.scores[k])}`)))),
-    el("pre", { class: "share" }, share),
-    el("div", { class: "controls" }, copyBtn),
-    el("p", { class: "muted" }, `Streak: ${streak} day${streak === 1 ? "" : "s"} · days played: ${played}`),
-    el("p", { class: "muted" }, "Next puzzles at 00:00 UTC."),
-  ), leaderboardPanel(day, state, total));
+  const { streak: st, played } = streak();
+  app.replaceChildren(archiveBanner(), el("section", { class: "card" },
+    el("h2", {}, `${points(mainTotal())} / 200 `, emoji(state.scores[0]), emoji(state.scores[1])),
+    el("ul", { class: "scores" },
+      el("li", {}, el("span", {}, "Round 1 · easy"), el("b", {}, `${points(state.scores[0])} ${emoji(state.scores[0])}`)),
+      el("li", {}, el("span", {}, "Round 2 · hard"), el("b", {}, `${points(state.scores[1])} ${emoji(state.scores[1])}`)),
+      bonusDone() ? el("li", {}, el("span", {}, "⚡ Bonus · laser"), el("b", {}, `${points(state.scores[2])} ${emoji(state.scores[2])}`)) : null),
+    bonusDone() ? null : el("div", { class: "bonus-cta" },
+      el("p", {}, el("b", {}, "⚡ Bonus round unlocked: "), "a laser fires into a box of mirrors. Where does it hit the wall?"),
+      el("button", { class: "primary big", onclick: () => { state.playingBonus = true; save(); playLaser(); } }, "Play the bonus")),
+    share,
+    el("div", { class: "controls" }, copy),
+    el("p", { class: "muted" }, `Streak: ${st} day${st === 1 ? "" : "s"} · days played: ${played}`),
+  ));
 }
 
-function leaderboardPanel(day, state, total) {
-  const box = el("section", { class: "card board" }, el("h3", {}, "Today's leaderboard"));
-  api.ready.then(() => fillBoard(box, day, state));
-  return box;
-}
-
-function fillBoard(box, day, state) {
-  if (!api.configured()) { box.append(el("p", { class: "muted" }, "Leaderboard not connected in this build.")); return; }
-  const date = day.header.date;
-  const submittedKey = `predictle:submitted:${date}`;
+// ---------------------------------------------------------------- leaderboards, yesterday, archive
+function boardRows(board, scoreOf) {
   const list = el("ol", { class: "ranks" });
-  const status = el("p", { class: "muted" });
-  const render = (board) => {
-    list.replaceChildren(...board.top.map((row) => el("li", { class: row.you ? "you" : "" },
-      el("span", {}, `${row.rank}. ${row.name}`), el("span", {}, `${row.scores.map(emoji).join("")} ${points(row.total)}`))));
-    if (board.you) list.append(el("li", { class: "you" }, el("span", {}, `${board.you.rank}. ${board.you.name}`), el("span", {}, points(board.you.total))));
-    status.textContent = `${board.players} player${board.players === 1 ? "" : "s"}${board.late ? " (played late)" : ""}`;
-  };
-  if (store.get(submittedKey)) {
-    api.board(date).then(render).catch(() => (status.textContent = "Couldn't load the leaderboard."));
-    box.append(status, list);
-    return;
+  if (!board.top.length) list.append(el("li", { class: "muted" }, "Nobody yet. Be the first."));
+  for (const row of board.top) list.append(el("li", { class: row.you ? "you" : "" }, el("span", {}, `${row.rank}. ${row.name}`), el("span", {}, scoreOf(row))));
+  if (board.you) list.append(el("li", { class: "you" }, el("span", {}, `${board.you.rank}. ${board.you.name}`), el("span", {}, scoreOf(board.you))));
+  return list;
+}
+const mainScore = (row) => `${row.scores.map(emoji).join("")} ${points(row.total)}`;
+const bonusScore = (row) => `⚡${emoji(row.total)} ${points(row.total)}`;
+
+async function renderSideCards() {
+  await api.ready;
+  const side = $("#side");
+  side.replaceChildren();
+  if (api.configured()) {
+    side.append(boardCard("main", isArchive ? "Leaderboard for this day" : "Today's leaderboard", mainDone(), () => state.guesses.slice(0, 2), mainScore));
+    if (mainDone()) side.append(boardCard("bonus", "Bonus leaderboard ⚡", bonusDone(), () => [state.guesses[2]], bonusScore));
+    if (!isArchive) side.append(yesterdayCard());
   }
-  const name = el("input", { maxlength: 20, placeholder: "Your name", value: store.get("predictle:name", "") });
-  const send = el("button", { class: "primary", onclick: async () => {
-    const n = name.value.trim();
-    if (!n) { name.focus(); return; }
-    store.set("predictle:name", n);
-    send.disabled = true; status.textContent = "Sending…";
-    try {
-      const res = await api.submit(date, n, state.guesses);
-      store.set(submittedKey, true);
-      form.remove();
-      render(res.board);
-    } catch (e) { status.textContent = e.message; send.disabled = false; }
-  } }, "Add my score");
-  const form = el("div", { class: "controls" }, name, send);
-  box.append(form, status, list);
-  api.board(date).then(render).catch(() => {});
+  side.append(archiveCard());
+}
+
+function boardCard(board, title, canSubmit, guesses, scoreOf) {
+  const card = el("section", { class: "card board" }, el("h3", {}, title));
+  const status = el("p", { class: "muted" });
+  const body = el("div");
+  card.append(status, body);
+  const subKey = `predictle:submitted:${board}:${date}`;
+  const load = () => Promise.all([api.board(date, board, false), isArchive ? api.board(date, board, true) : null])
+    .then(([onDay, late]) => {
+      status.textContent = `${onDay.players} player${onDay.players === 1 ? "" : "s"} on the day`;
+      body.replaceChildren(boardRows(onDay, scoreOf));
+      if (late) body.append(el("h4", {}, `Played later (${late.players})`), boardRows(late, scoreOf));
+    }).catch(() => (status.textContent = "Couldn't load the leaderboard."));
+  if (canSubmit && !store.get(subKey)) {
+    const name = el("input", { maxlength: 20, placeholder: "Your name", value: store.get("predictle:name", ""), "aria-label": "Your name" });
+    const send = el("button", { class: "primary", onclick: async () => {
+      const n = name.value.trim();
+      if (!n) { name.focus(); return; }
+      store.set("predictle:name", n);
+      send.disabled = true; status.textContent = "Sending…";
+      try {
+        await api.submit(date, board, n, guesses());
+        store.set(subKey, true);
+        form.remove();
+        load();
+      } catch (e) { status.textContent = e.message; send.disabled = false; }
+    } }, "Add my score");
+    const form = el("div", { class: "controls" }, name, send);
+    card.insertBefore(form, status);
+  } else if (!canSubmit) {
+    card.append(el("p", { class: "muted small" }, "Play to add your score."));
+  }
+  load();
+  return card;
+}
+
+function yesterdayCard() {
+  const y = addDays(today, -1);
+  const card = el("section", { class: "card" }, el("h3", {}, `Yesterday (#${dayNumber(y)})`));
+  if (y < LAUNCH_DAY) { card.append(el("p", { class: "muted" }, "Predictle started today.")); return card; }
+  const body = el("div", {}, el("p", { class: "muted" }, "Loading…"));
+  card.append(body, el("p", {}, el("a", { href: `?date=${y}` }, "Play yesterday's puzzles →")));
+  Promise.all([api.board(y, "main", false), api.board(y, "bonus", false)]).then(([m, b]) => {
+    const best = (bd, f) => (bd.top[0] ? `${bd.top[0].name}, ${f(bd.top[0])}` : "nobody played");
+    body.replaceChildren(
+      el("p", {}, el("b", {}, "Best: "), best(m, mainScore), m.players ? ` (${m.players} played)` : ""),
+      el("p", {}, el("b", {}, "Best bonus: "), best(b, bonusScore)));
+  }).catch(() => body.replaceChildren(el("p", { class: "muted" }, "Couldn't load yesterday's results.")));
+  return card;
+}
+
+function archiveCard() {
+  const h = store.get("predictle:history", {});
+  const days = [];
+  for (let d = addDays(today, -1); d >= LAUNCH_DAY; d = addDays(d, -1)) days.push(d);
+  const card = el("section", { class: "card archive" }, el("h3", {}, "Archive: replay a past day"));
+  if (isArchive) card.append(el("p", {}, el("a", { href: "./" }, `← Today (#${dayNumber(today)})`)));
+  if (!days.length) { card.append(el("p", { class: "muted" }, "Past days will appear here.")); return card; }
+  const list = el("ul", { class: "days" });
+  const item = (d) => {
+    const mine = h[d];
+    return el("li", { class: d === date ? "current" : "" }, el("a", { href: `?date=${d}` },
+      el("span", {}, `#${dayNumber(d)} · ${prettyDate(d)}`),
+      el("span", { class: "muted" }, mine?.main != null ? `${points(mine.main)}/200${mine.bonus != null ? ` · ⚡${points(mine.bonus)}` : ""}` : "not played")));
+  };
+  days.slice(0, 7).forEach((d) => list.append(item(d)));
+  card.append(list);
+  if (days.length > 7) {
+    const more = el("button", { onclick: () => { days.slice(7).forEach((d) => list.append(item(d))); more.remove(); } }, `Show all ${days.length} days`);
+    card.append(more);
+  }
+  return card;
 }

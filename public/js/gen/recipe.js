@@ -4,7 +4,8 @@
 // simulated briefly and the next piece goes where the ball is actually heading.
 // That makes most candidates interesting (the ball meets most pieces) instead of
 // the ball falling straight past randomly scattered parts.
-import { simulate, dominoX } from "../sim/simulate.mjs";
+import { simulate, dominoX } from "../sim/simulate.js";
+import { sin, cos } from "../shared/dmath.js";
 
 export const WORLD_WIDTHS = [7.5, 9, 10.5]; // aspect is always 3:4; scale varies per puzzle
 const FLOOR_Y = 0.16; // top of the floor bar
@@ -16,7 +17,7 @@ export function bounds(c) {
     case "ramp": case "wall": return pad(c.x1, c.y1, c.x2, c.y2, (c.t ?? 0.12) / 2);
     case "curve": {
       const xs = [], ys = [];
-      for (let k = 0; k <= 12; k++) { const a = c.a0 + ((c.a1 - c.a0) * k) / 12; xs.push(c.cx + c.r * Math.cos(a)); ys.push(c.cy + c.r * Math.sin(a)); }
+      for (let k = 0; k <= 12; k++) { const a = c.a0 + ((c.a1 - c.a0) * k) / 12; xs.push(c.cx + c.r * cos(a)); ys.push(c.cy + c.r * sin(a)); }
       return pad(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), 0.08);
     }
     case "bumper": return pad(c.x - c.r, c.y - c.r, c.x + c.r, c.y + c.r);
@@ -29,6 +30,8 @@ export function bounds(c) {
     case "pendulum": return pad(c.px - c.r - 0.1, c.py - c.len - c.r, c.px + c.r + 0.1, c.py + 0.1);
     case "dominoes": return pad(c.x0 - c.w, c.y, dominoX(c, c.n - 1) + c.w, c.y + c.h);
     case "fan": return null; // a zone, may overlap things
+    case "spinner": return pad(c.x - c.arm, c.y - c.arm, c.x + c.arm, c.y + c.arm, 0.05);
+    case "funnel": return pad(c.x - c.gap / 2 - c.w, c.y - 0.06, c.x + c.gap / 2 + c.w, c.y + c.h + 0.06);
     case "ball": return pad(c.x - c.r, c.y - c.r, c.x + c.r, c.y + c.r);
     case "block": return pad(c.x - c.hw, c.y - c.hh, c.x + c.hw, c.y + c.hh);
     case "sand": return pad(c.x1, c.y - (c.depth ?? 0.14), c.x2, c.y);
@@ -54,7 +57,8 @@ export async function mainPath(scene, seconds = 7) {
 }
 
 export const MIDDLE = {
-  ramp: 6, curve: 2, bumper: 3, seesaw: 2, spring: 2, conveyor: 2, fan: 1.5, pendulum: 1.5,
+  ramp: 5, curve: 2, bumper: 3, seesaw: 2, spring: 2, conveyor: 2, fan: 1.5, pendulum: 1.5,
+  shelf: 3, spinner: 1.5, funnel: 1.2,
 };
 
 /** One middle piece of `type` placed so the ball at path point P is likely to hit it. */
@@ -67,8 +71,8 @@ export function piece(rng, type, P, r, W, H) {
       const d = rng.chance(0.65) ? towardCentre : rng.sign(); // descends towards +d
       const f = rng.float(0.15, 0.5);
       const qx = P.x, qy = below - 0.08;
-      const x1 = qx - d * f * L * Math.cos(th), y1 = qy + f * L * Math.sin(th);
-      return { type, x1, y1, x2: x1 + d * L * Math.cos(th), y2: y1 - L * Math.sin(th), material: rng.weighted({ wood: 5, ice: 2, rubber: 1, steel: 1 }) };
+      const x1 = qx - d * f * L * cos(th), y1 = qy + f * L * sin(th);
+      return { type, x1, y1, x2: x1 + d * L * cos(th), y2: y1 - L * sin(th), material: rng.weighted({ wood: 5, ice: 2, rubber: 1, steel: 1 }) };
     }
     case "curve": {
       const R = rng.float(0.8, 1.5), span = rng.float(1.2, 2.2), lean = rng.float(0.15, 0.4) * rng.sign();
@@ -92,6 +96,30 @@ export function piece(rng, type, P, r, W, H) {
       const w = rng.float(1.4, 2.4), h = rng.float(2, 3.4);
       const x1 = P.x - w * rng.float(0.2, 0.8), y2 = P.y + 0.3;
       return { type, x1, y1: y2 - h, x2: x1 + w, y2, ax: rng.sign() * rng.float(4, 9), ay: rng.float(-1, 3) };
+    }
+    case "shelf": {
+      // A short ledge under the path, sometimes with a loose ball or block sitting on it
+      // where the object will arrive: returns [shelf] or [shelf, loose object].
+      const w = rng.float(0.9, 1.8), tilt = rng.float(-0.12, 0.12), x1 = P.x - w * rng.float(0.25, 0.75);
+      const y = below - 0.1, shelf = { type: "ramp", x1, y1: y - tilt * w / 2, x2: x1 + w, y2: y + tilt * w / 2, t: 0.12, material: rng.weighted({ wood: 4, ice: 2, steel: 1, rubber: 1 }) };
+      if (!rng.chance(0.55)) return shelf;
+      const dir = P.vx >= 0 ? 1 : -1, ox = P.x + dir * rng.float(0.35, 0.7);
+      if (ox < x1 + 0.2 || ox > x1 + w - 0.2) return shelf;
+      const sy = y + tilt * ((ox - x1) / w - 0.5) * w + 0.06;
+      const loose = rng.chance(0.6)
+        ? { type: "ball", x: ox, y: sy + 0.18, r: rng.float(0.14, 0.24), material: rng.weighted({ wood: 3, steel: 2, rubber: 2, ice: 1 }) }
+        : { type: "block", x: ox, y: sy + 0.2, hw: rng.float(0.12, 0.22), hh: rng.float(0.12, 0.2), material: rng.weighted({ wood: 3, steel: 2, ice: 1 }) };
+      if (loose.type === "block") loose.y = sy + loose.hh + 0.01;
+      else loose.y = sy + loose.r + 0.01;
+      return [shelf, loose];
+    }
+    case "spinner": {
+      const arm = rng.float(0.45, 0.9), off = rng.float(0.2, 0.7) * arm * rng.sign();
+      return { type, x: P.x + off, y: P.y - r - arm * rng.float(0.3, 0.8), arm, arms: rng.int(2, 4), speed: rng.sign() * rng.float(1, 3), material: rng.weighted({ wood: 3, rubber: 1, steel: 1 }) };
+    }
+    case "funnel": {
+      const gap = 2 * r + rng.float(0.15, 0.45), w = rng.float(0.7, 1.4), h = rng.float(0.4, 0.9);
+      return { type, x: P.x + rng.float(-0.5, 0.5), y: below - h - 0.15, gap, w, h, material: rng.weighted({ wood: 3, ice: 1, steel: 1 }) };
     }
     case "pendulum": {
       const len = rng.float(0.9, 1.6), rb = rng.float(0.2, 0.3);

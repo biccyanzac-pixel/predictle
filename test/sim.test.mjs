@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { simulate } from "../tools/sim/simulate.mjs";
+import { simulate } from "../public/js/sim/simulate.js";
 import { encodeMotion, packPuzzle, unpackPuzzle } from "../public/js/shared/codec.js";
 import { PROTOTYPE } from "../tools/scenes/prototype.mjs";
 

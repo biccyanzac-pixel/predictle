@@ -16,36 +16,32 @@ const call = async (path, body) => {
 
 const day = new Date().toISOString().slice(0, 10);
 const { header } = readDayHeader(new Uint8Array(gunzipSync(readFileSync(new URL(`../../public/puzzles/${day}.prd`, import.meta.url)))));
-// a guess per puzzle: the exact answer for the first, rough ones for the rest
-const guesses = header.puzzles.map((p, i) => {
-  const a = p.answer;
-  switch (p.format) {
-    case 'stop': case 'freeze': return i === 0 ? { ...a.final } : { x: a.final.x + 1, y: a.final.y };
-    case 'height': return { y: a.peak + (i === 0 ? 0 : 0.8) };
-    case 'time': return { t: a.seconds + (i === 0 ? 0 : 0.5) };
-    case 'dominoes': return { n: a.fallen + (i === 0 ? 0 : 1) };
-    case 'place': return { choice: i === 0 ? a.solution : (a.solution + 1) % p.candidates.length };
-  }
-});
-const expected = header.puzzles.map((p, i) => Math.round(scorePuzzle(p, guesses[i]) * 100) / 100);
-
+// main board: the exact answer for round 1, a rough one for round 2; bonus: a near miss
+const main = header.puzzles.filter((p) => p.slot !== 'bonus'), bonus = header.puzzles.find((p) => p.slot === 'bonus');
+const guesses = main.map((p, i) => (i === 0 ? { ...p.answer.final } : { x: p.answer.final.x + 1, y: p.answer.final.y }));
+const expected = main.map((p, i) => Math.round(scorePuzzle(p, guesses[i]) * 100) / 100);
+const bonusGuess = [{ x: bonus.answer.hit.x, y: bonus.answer.hit.y }];
 const s = await call('/api/session', {});
 check(s.status === 200 && s.body.playerId && s.body.token, 'session issued');
 check(s.cors === origin, 'CORS echoes the allowed origin');
-const bad = await call('/api/submit', { ...s.body, token: 'nope', day, name: 'X', guesses });
+const bad = await call('/api/submit', { ...s.body, token: 'nope', day, board: 'main', name: 'X', guesses });
 check(bad.status === 401, 'wrong token rejected');
-const future = await call('/api/submit', { ...s.body, day: '2999-01-01', name: 'X', guesses });
+const future = await call('/api/submit', { ...s.body, day: '2999-01-01', board: 'main', name: 'X', guesses });
 check(future.status === 400, 'future day rejected');
-const wrongCount = await call('/api/submit', { ...s.body, day, name: 'X', guesses: guesses.slice(1) });
+const wrongCount = await call('/api/submit', { ...s.body, day, board: 'main', name: 'X', guesses: guesses.slice(1) });
 check(wrongCount.status === 400, 'wrong number of guesses rejected');
-const sub = await call('/api/submit', { ...s.body, day, name: '  Tester  ', guesses, scores: [100, 100, 100] });
+const sub = await call('/api/submit', { ...s.body, day, board: 'main', name: '  Tester  ', guesses, scores: [100, 100] });
 check(sub.status === 200, `submitted (${sub.status} ${sub.body.message ?? ''})`);
 check(JSON.stringify(sub.body.scores) === JSON.stringify(expected), `server scored the guesses itself: ${sub.body.scores} vs expected ${expected}`);
 check(sub.body.scores[0] === 100, 'exact answer scores 100');
 check(sub.body.board?.top?.some((r) => r.you && r.name === 'Tester'), 'board shows you with a trimmed name');
-const again = await call('/api/submit', { ...s.body, day, name: 'Tester', guesses });
+const again = await call('/api/submit', { ...s.body, day, board: 'main', name: 'Tester', guesses });
+const bon = await call('/api/submit', { ...s.body, day, board: 'bonus', name: 'Tester', guesses: bonusGuess });
+check(bon.status === 200 && bon.body.scores[0] === 100, 'bonus board: exact wall hit scores 100, on its own board');
+const badBoard = await call('/api/submit', { ...s.body, day, board: 'nope', name: 'Tester', guesses });
+check(badBoard.status === 400, 'unknown board rejected');
 check(again.status === 409, 'second submission for the day rejected');
-const board = await call(`/api/leaderboard?day=${day}&playerId=${s.body.playerId}`);
+const board = await call(`/api/leaderboard?day=${day}&board=bonus&playerId=${s.body.playerId}`);
 check(board.status === 200 && board.body.players >= 1, 'leaderboard readable');
 console.log(failed ? `${failed} FAILED` : 'all passed');
 process.exit(failed ? 1 : 0);

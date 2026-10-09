@@ -1,42 +1,20 @@
-// Write day files: public/puzzles/YYYY-MM-DD.prd, each = the date's 3 generated rounds.
+// Write day files: public/puzzles/YYYY-MM-DD.prd. Each day depends only on its date
+// (public/js/gen/day.js), so days can be made in any order, in parallel, on any machine
+// or in a browser, and always come out byte-identical.
 // Usage: node tools/gen/make-days.mjs --from 2026-10-09 --days 7
-// Each day depends only on its date (see daily.mjs), so days can be generated in any
-// order, in parallel, on any machine, and regenerating a day gives the same bytes.
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 import { availableParallelism } from "node:os";
 import { gzipSync } from "node:zlib";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { generateRound, SLOTS } from "./daily.mjs";
-import { encodeMotion, packDay } from "../../public/js/shared/codec.js";
-
-const r3 = (x) => (typeof x === "number" ? Math.round(x * 1000) / 1000 : x);
-const round3 = (o) => JSON.parse(JSON.stringify(o, (_, v) => r3(v)));
+import { buildDay } from "../../public/js/gen/day.js";
+import { packDay } from "../../public/js/shared/codec.js";
 
 export async function makeDay(date) {
-  const puzzles = [], streams = [];
-  for (let k = 0; k < SLOTS.length; k++) {
-    const g = await generateRound(date, k);
-    // End the recording 1 s after the tracked object stops (other things may still be swinging).
-    const fps = g.run.meta.fps;
-    const frames = Math.min(g.run.meta.frameCount, Math.ceil((g.run.meta.mainSettledSeconds + 1) * fps) + 1);
-    const rec = { ...g.run.recording, frameCount: frames, bodies: g.run.recording.bodies.map((b) => ({ x: b.x.slice(0, frames), y: b.y.slice(0, frames), a: b.a.slice(0, frames) })) };
-    const motion = encodeMotion(rec);
-    puzzles.push(round3({
-      id: g.seed,
-      slot: SLOTS[k],
-      ...g.puzzle,
-      fps: g.run.meta.fps,
-      statics: g.run.meta.statics,
-      decor: g.run.meta.decor,
-      bodies: g.run.meta.bodies,
-      recordings: [{ frameCount: frames, keyFrame: g.run.meta.keyFrame, length: motion.length }],
-    }));
-    streams.push(motion);
-  }
-  return gzipSync(packDay({ v: 2, date, puzzles }, streams), { level: 9 });
+  const { header, streams } = await buildDay(date);
+  return gzipSync(packDay(header, streams), { level: 9 });
 }
 
-if (isMainThread) {
+if (isMainThread && process.argv[1]?.endsWith("make-days.mjs")) {
   const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
   const from = arg("from", new Date().toISOString().slice(0, 10));
   const days = +arg("days", 7);
@@ -61,6 +39,6 @@ if (isMainThread) {
   index.days = Object.fromEntries(Object.keys(index.days).sort().map((d) => [d, true]));
   writeFileSync(indexFile, JSON.stringify(index, null, 1));
   console.log(`done in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
-} else {
+} else if (!isMainThread) {
   for (const date of workerData.dates) parentPort.postMessage({ date, file: await makeDay(date) });
 }

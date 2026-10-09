@@ -26,6 +26,8 @@
 //   fan       {x1,y1,x2,y2,ax,ay}                      zone that accelerates bodies inside by (ax,ay) m/s^2
 //   buckets   {x1,x2,y,n,h,t?}                         n equal buckets with dividers, floor at y
 //   sand      {x1,x2,y,depth?}                         sandpit surface (top at y): things stop where they land
+//   spinner   {x,y,arm,arms,speed,material?}           paddles turning at constant speed (rad/s, + = anticlockwise)
+//   funnel    {x,y,gap,w,h,material?}                  V of two ramps; (x,y) = centre of the gap at the bottom
 //
 // Any component may carry frame: true (walls/floor: not counted as "touched") and
 // floor: true (the floor, for "when does it hit the floor" questions).
@@ -33,8 +35,9 @@
 //
 // options.noise (for the rough-physics bot): { friction, restitution, force } multipliers.
 
-import Box2DFactory from "../../node_modules/box2d3-wasm/build/dist/es/compat/Box2D.compat.mjs";
-import { MATERIALS, WORLD } from "../../public/js/shared/materials.js";
+import Box2DFactory from "../../vendor/box2d3/Box2D.compat.mjs";
+import { MATERIALS, WORLD } from "../shared/materials.js";
+import { sin, cos, atan2, hypot } from "../shared/dmath.js";
 
 export const STEP_HZ = 60;
 
@@ -53,7 +56,7 @@ export async function simulate(scene, { maxSeconds = 20, settleTail = 0.5, noise
   try {
     result = sim.run(scene, maxSeconds, settleTail);
   } catch (e) {
-    if (process.env.SIM_DEBUG) console.error("run failed:", e.message, "SCENE", JSON.stringify(scene));
+    if (typeof process !== "undefined" && process.env?.SIM_DEBUG) console.error("run failed:", e.message, "SCENE", JSON.stringify(scene));
     throw e;
   } finally {
     sim.destroy();
@@ -91,10 +94,10 @@ class Sim {
   destroy() { this.B.b2DestroyWorld(this.world); }
 
   // ------------------------------------------------------------ bodies and shapes
-  body({ dynamic, x, y, angle = 0, bullet = false, angularDamping = 0 }) {
+  body({ dynamic, kinematic = false, x, y, angle = 0, bullet = false, angularDamping = 0 }) {
     const B = this.B, d = B.b2DefaultBodyDef();
     d.angularDamping = angularDamping;
-    d.type = dynamic ? B.b2BodyType.b2_dynamicBody : B.b2BodyType.b2_staticBody;
+    d.type = kinematic ? B.b2BodyType.b2_kinematicBody : dynamic ? B.b2BodyType.b2_dynamicBody : B.b2BodyType.b2_staticBody;
     const p = this.vec(x, y); d.position = p; p.delete();
     const r = B.b2MakeRot(angle); d.rotation = r; r.delete();
     d.isBullet = bullet;
@@ -142,7 +145,7 @@ class Sim {
 
   // A thick static segment from (x1,y1) to (x2,y2).
   staticBar(comp, x1, y1, x2, y2, t, material, extra) {
-    const len = Math.hypot(x2 - x1, y2 - y1), a = Math.atan2(y2 - y1, x2 - x1);
+    const len = hypot(x2 - x1, y2 - y1), a = atan2(y2 - y1, x2 - x1);
     const shape = this.addBox(this.ground, comp, material, len / 2, t / 2, (x1 + x2) / 2, (y1 + y2) / 2, a, extra);
     this.statics.push({ ...shape, comp });
   }
@@ -207,11 +210,11 @@ class Sim {
     const t = c.t ?? 0.12, pts = [];
     for (let k = 0; k <= n; k++) {
       const a = c.a0 + ((c.a1 - c.a0) * k) / n;
-      pts.push([c.cx + c.r * Math.cos(a), c.cy + c.r * Math.sin(a)]);
+      pts.push([c.cx + c.r * cos(a), c.cy + c.r * sin(a)]);
     }
     for (let k = 0; k < n; k++) {
       const [x1, y1] = pts[k], [x2, y2] = pts[k + 1];
-      const len = Math.hypot(x2 - x1, y2 - y1), a = Math.atan2(y2 - y1, x2 - x1);
+      const len = hypot(x2 - x1, y2 - y1), a = atan2(y2 - y1, x2 - x1);
       this.addBox(this.ground, i, c.material ?? "wood", len / 2 + t / 4, t / 2, (x1 + x2) / 2, (y1 + y2) / 2, a);
     }
     this.statics.push({ t: "path", pts, thick: t, m: c.material ?? "wood", comp: i });
@@ -300,6 +303,23 @@ class Sim {
     this.decor.push({ t: "conveyor", x1: c.x1, x2: c.x2, y: c.y, h: t, speed: c.speed, comp: i });
   }
 
+  // Spinner: paddles turning at a constant speed (motor-driven, unstoppable).
+  make_spinner(c, i) {
+    const b = this.body({ kinematic: true, x: c.x, y: c.y });
+    const shapes = [];
+    for (let k = 0; k < c.arms; k++) shapes.push(this.addBox(b, i, c.material ?? "wood", c.arm, 0.06, 0, 0, (Math.PI * k) / c.arms));
+    this.B.b2Body_SetAngularVelocity(b, c.speed);
+    this.addDynamic(i, "spinner", c.material ?? "wood", b, shapes);
+    this.decor.push({ t: "pivot", x: c.x, y: c.y, comp: i });
+  }
+
+  // Funnel: two ramps in a V, leaving a gap at the bottom (x, y) to drop through.
+  make_funnel(c, i) {
+    const m = c.material ?? "wood", t = 0.12;
+    this.staticBar(i, c.x - c.gap / 2 - c.w, c.y + c.h, c.x - c.gap / 2, c.y, t, m);
+    this.staticBar(i, c.x + c.gap / 2, c.y, c.x + c.gap / 2 + c.w, c.y + c.h, t, m);
+  }
+
   make_fan(c, i) {
     this.fans.push(c);
     this.decor.push({ t: "fan", ...c, comp: i });
@@ -318,7 +338,7 @@ class Sim {
   // ------------------------------------------------------------ run
   read(id) {
     const B = this.B, p = B.b2Body_GetPosition(id), r = B.b2Body_GetRotation(id);
-    const out = { x: p.x, y: p.y, a: Math.atan2(r.s, r.c) };
+    const out = { x: p.x, y: p.y, a: atan2(r.s, r.c) };
     p.delete(); r.delete();
     return out;
   }
@@ -336,6 +356,7 @@ class Sim {
     if (!this.sandpits.length) return;
     const B = this.B;
     for (const d of this.dynamics) {
+      if (d.kind === "spinner") continue;
       const p = this.read(d.id);
       const inside = this.sandpits.some((s) => p.x > s.x1 && p.x < s.x2 && p.y < s.y + 0.4 && p.y > s.y - 0.3);
       if (inside === !!d.inSand) continue;
@@ -370,7 +391,7 @@ class Sim {
     const sample = () => this.dynamics.forEach((d, k) => {
       const p = this.read(d.id);
       // unwrap the angle so it changes smoothly through +-pi
-      if (lastA[k] !== null) p.a = lastA[k] + Math.atan2(Math.sin(p.a - lastA[k]), Math.cos(p.a - lastA[k]));
+      if (lastA[k] !== null) p.a = lastA[k] + atan2(sin(p.a - lastA[k]), cos(p.a - lastA[k]));
       lastA[k] = p.a;
       tracks[k].x.push(p.x); tracks[k].y.push(p.y); tracks[k].a.push(p.a);
     });
@@ -429,7 +450,7 @@ class Sim {
       if (mainIdx >= 0) {
         const id = this.dynamics[mainIdx].id;
         const v = this.velocity(id);
-        kick.push(Math.hypot(v.x - prevV.x, v.y - prevV.y + 10 * dt));
+        kick.push(hypot(v.x - prevV.x, v.y - prevV.y + 10 * dt));
         prevV = v;
         pos.push(this.read(id));
       }
@@ -452,7 +473,7 @@ class Sim {
         };
         if (mainSettledAt === null && mainIdx >= 0 && still(mainIdx)) mainSettledAt = step - win * every;
         if (mainSettledAt !== null && mainIdx >= 0 && !still(mainIdx)) mainSettledAt = null; // it moved again
-        if (settledAt === null && this.dynamics.every((_, k) => still(k))) settledAt = step - win * every;
+        if (settledAt === null && this.dynamics.every((d, k) => d.kind === "spinner" || still(k))) settledAt = step - win * every;
         if (settledAt !== null && step - settledAt >= (settleTail + 0.5) * STEP_HZ) break;
       }
     }
@@ -483,7 +504,7 @@ class Sim {
     const dominoes = this.dynamics.map((d, k) => (d.kind === "domino" ? k : -1)).filter((k) => k >= 0);
     const fallen = dominoes.filter((k) => {
       const t = tracks[k];
-      return Math.abs(t.a.at(-1) - t.a[0]) > 0.3 || Math.hypot(t.x.at(-1) - t.x[0], t.y.at(-1) - t.y[0]) > 0.3;
+      return Math.abs(t.a.at(-1) - t.a[0]) > 0.3 || hypot(t.x.at(-1) - t.x[0], t.y.at(-1) - t.y[0]) > 0.3;
     }).length;
 
     const frameCount = tracks[0]?.x.length ?? 0;

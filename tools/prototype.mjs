@@ -3,7 +3,7 @@
 // Usage: node tools/prototype.mjs [--trace]
 import { gzipSync, gunzipSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { simulate } from "./sim/simulate.mjs";
+import { simulate } from "../public/js/sim/simulate.js";
 import { encodeMotion, packPuzzle, unpackPuzzle } from "../public/js/shared/codec.js";
 import { PROTOTYPE } from "./scenes/prototype.mjs";
 

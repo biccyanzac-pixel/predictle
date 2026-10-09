@@ -39,12 +39,12 @@ async function ensureSession() {
   return s;
 }
 
-export async function submit(day, name, guesses) {
+export async function submit(day, board, name, guesses) {
   const s = await ensureSession();
-  return call("/api/submit", { method: "POST", body: JSON.stringify({ ...s, day, name, guesses }) });
+  return call("/api/submit", { method: "POST", body: JSON.stringify({ ...s, day, board, name, guesses }) });
 }
 
-export async function board(day) {
+export async function board(day, which = "main", late = false) {
   const s = session();
-  return call(`/api/leaderboard?day=${day}${s ? `&playerId=${encodeURIComponent(s.playerId)}` : ""}`);
+  return call(`/api/leaderboard?day=${day}&board=${which}${late ? "&late=1" : ""}${s ? `&playerId=${encodeURIComponent(s.playerId)}` : ""}`);
 }

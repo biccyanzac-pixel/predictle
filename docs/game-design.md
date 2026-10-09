@@ -1,68 +1,80 @@
-# Game design (9 Oct 2026, second version)
+# Game design (third version, 9 Oct 2026)
 
-## One format: freeze frame
-Every round works the same way:
-1. Watch the start. It freezes just before the tricky moment: 0.4 s before the tracked object gets its biggest kick from a real piece.
-2. Tap where **A** will come to rest. A is usually a ball, sometimes a block.
-3. Watch what really happens, with slow motion at the tricky moment.
+## A day
+1. **Round 1 (easy)** and **Round 2 (hard)**, both freeze frame. You watch the start, it freezes just before the tricky moment (0.4 s before A's biggest kick from a real piece), and you tap where **A** will come to rest. A is usually a ball, sometimes a block. Then you watch, with slow motion at the tricky moment. **Skip ⏭** works at any point.
+2. **Bonus: the laser.** It unlocks after both rounds. A laser fires into a box of mirrors (flat, round, curved and triangular, all reflecting on both sides). You tap the wall where the beam will hit; your tap snaps to the nearest wall. The beam is then drawn bounce by bounce. It has its own leaderboard.
 
-**Skip ⏭** works both while watching the start and while watching the outcome.
+## Generated from the date, identical everywhere
+Every puzzle is a function of the date: `round = f(date, round)` and `laser = f(date)`. For attempt 0, 1, 2, …, a design is built from the seed `predictle:<date>:<round>:<attempt>`, and **the first one that passes every check is the puzzle**. Nothing is curated.
 
-## Generated from the date, not chosen
-`round = f(date, roundNumber)`, in `tools/gen/daily.mjs`.
+**The same in every browser.** Box2D runs in WebAssembly, whose floating-point maths is deterministic by specification and doesn't call JavaScript's Math. The JavaScript around it (generator, simulator glue, scoring) avoids `Math.sin`, `cos`, `atan2`, `hypot` and `**`, whose last bit can differ between Chrome, Safari and Firefox. It uses `shared/dmath.js` instead, built from + − × ÷ and √ only.
 
-For attempt = 0, 1, 2, …, a contraption is built from the seed `predictle:<date>:<round>:<attempt>`. **The first attempt that passes every check is the round.** Nothing is picked, ranked or curated, and regenerating any date gives byte-identical files. The pieces combine in effectively unlimited ways:
-- 8 kinds of moving parts and surfaces, in 4 materials
-- random sizes, angles, positions and arena sizes
-- each piece placed on the object's actual path
+Verified by generating the same days in Node, Edge (Chromium), Firefox and WebKit (Safari's engine). All four produce byte-identical results (same SHA-256). To re-check:
+- `node tools/gen/hash-day.mjs DATE` for Node
+- `/dev/determinism.html?date=DATE` in any browser
 
-The day files are still generated ahead of time in Node (about 4 s per day), not in the browser. Running the physics in each player's browser could give slightly different results in Safari and Chrome, because their maths functions differ. Then friends would see different puzzles. Pre-generating with the same date rule gives everyone the same thing.
+**How the two paths fit together:**
+- **Normal path:** pre-generated day files (`public/puzzles/DATE.prd`), which load instantly.
+- **Fallback:** when a day has no file, the browser builds it itself in a background worker ("Building the contraptions…"). That takes about 20–30 s on a laptop and longer on a phone, and gives exactly the bytes the file would have held.
 
-## Difficulty: from how things combine
-The level runs from 0 (gentlest) to 1 (hardest):
+So the game never runs out of puzzles. Pre-generating years ahead keeps it fast. The leaderboard can only check scores for days that have a file; see status.md.
 
-**level = 0.04 + 0.27 × round + 0.07 × weekday** (round 0–2; weekday 0 = Monday … 6 = Sunday)
+## Pieces
+- **Moving and twisty:** bumpers, seesaws, springs, conveyors, fans, pendulums, **spinners** (paddles turning at a constant speed), and **loose balls and blocks** sitting on **shelves** waiting to be knocked.
+- **Surfaces:** ramps and curved ramps, **funnels**, **shelves**, and **sand** (floor pits and mid-air ledges), plus strips of wood or ice where things keep sliding.
 
-So Monday easy is 0.04 and Sunday hard is 0.96. The level sets:
-- **arena size:** about 7 m wide at level 0, 11.5 m at level 1. It's always 3:4.
-- **piece count:** 2 to 5, plus 0 or 1 at random.
-- **twisty pieces:** how often bumpers, seesaws, springs, conveyors, fans and pendulums appear rather than plain ramps (×0.4 at level 0, ×2 at level 1).
-- **what still happens after the freeze:** easy needs at least 1 piece, medium at least 2, hard at least 2 including a twisty one.
-- **a sanity check with a "rough physics" bot**, which uses deliberately wrong materials and launch speed:
-  - easy rounds must be guessable by it (it scores 70+)
-  - hard rounds must fool it a bit (it scores 95 or less)
+Each piece has a random size, angle and material. Pieces are placed **on A's actual path** (the generator simulates as it goes). **Decoy** pieces are scattered elsewhere, so the picture doesn't give away which pieces matter.
 
-Across the first 10 days, the bot averaged 88 on easy rounds, 82 on medium and 74 on hard.
+## Difficulty
+| | Monday | … | Sunday |
+| --- | --- | --- | --- |
+| Easy level | 0.05 | +0.06 a day | 0.41 |
+| Hard level | 0.60 | +0.067 a day | 1.00 |
+| Laser level | 0.30 | +0.10 a day | 0.90 |
 
-## Fairness and pacing checks (every round)
-- Nothing leaves the screen, and A comes to rest within 10 s. The recording ends 1 s after that.
+The level sets:
+- the arena size: about 7 m wide at level 0, 11.5 m at level 1
+- the number of pieces: 3–6 on the path, plus 0–3 decoys
+- how twisty the pieces are
+
+It also sets what the checks demand:
+
+| Check | Easy (level < 0.5) | Hard |
+| --- | --- | --- |
+| Pieces A still meets after the freeze | 1+ | 2+, including a twisty one |
+| Best naive guess ("straight down" or "carry on in a parabola" from the freeze) | 85 or less | 60 or less |
+| "Rough physics" guesser (deliberately wrong materials and launch speed) | 55 or more | 15–92 |
+
+**Laser:**
+- needs 3–6+ reflections, depending on level
+- "straight on to the wall" and "first reflection, then straight" must score at most 70 − 30 × level
+
+## Fairness checks
+**Physics rounds:**
 - A touches at least 2 real pieces.
+- A comes to rest within 10 s, and nothing leaves the screen.
+- A doesn't end against a side wall.
 - **Chaos test:** 20 re-runs with the start nudged ±1 px and the speed ±1%. The resting spot may move at most 4% of the arena width.
-- A doesn't end pressed against a side wall.
-- The freeze comes after at least 0.8 s and at most 6 s of watching.
 
-## Sand
-A new surface (not a material for moving pieces). Anything that lands in sand stops: no bounce, full grip, heavy drag. It's used in two places:
-- **Floor sandpits.** Most of the floor, broken by short strips of wood or ice where things keep sliding.
-- **Mid-air sand ledges.** Short trays on the object's path, so some rounds end off the floor.
-
-This replaces the hills and valleys, which only gave 2–3 possible spots. It also keeps every round short.
+**Laser:**
+- no grazing reflections and no clipping a mirror's end
+- the beam doesn't end in a corner
+- nudging the aim by ±0.15° or the emitter by ±1 px must keep the same mirror sequence and move the hit by less than 2% of the perimeter
 
 ## Scoring
-**score = 100 × (1 − d / dMax)²**
+**score = 100 × (1 − miss / worst possible miss)⁴**
 
-- **d** is the distance from your tap to where A stopped.
-- **dMax** is the distance from where A stopped to the farthest corner of the arena, the worst possible guess.
+- **Physics rounds:** the miss is the straight-line distance. The worst possible miss is the distance to the farthest corner of the arena.
+- **Laser:** the miss is measured along the wall, the short way round. The worst possible miss is half the perimeter.
 
-So 0 means you picked the worst spot in the whole arena, not just "far off".
-
-| Miss, as a share of dMax | Score |
+| Miss, as a share of the worst | Score |
 | --- | --- |
-| 5% | 90 |
-| 10% | 81 |
-| 25% | 56 |
-| 50% | 25 |
+| 5% | 81 |
+| 10% | 66 |
+| 20% | 41 |
+| 30% | 24 |
+| 50% | 6 |
 
-A score that rounds to 100 needs a tap within about 0.3% of dMax, roughly 4 cm in a 9 m arena.
+0 only for the worst possible guess. A score that rounds to 100 needs a near-exact tap.
 
-The day's total is out of 300. Emoji per round: 🟢 90+, 🟡 60+, 🟠 30+, 🔴 below 30.
+The main score is out of 200; the bonus is out of 100, on its own board. Emoji: 🟢 90+, 🟡 60+, 🟠 30+, 🔴 below 30.
