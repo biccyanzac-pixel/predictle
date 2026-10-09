@@ -11,3 +11,10 @@ export function pickDate(search, { local = false, now = new Date() } = {}) {
   if (isDate(q) && (local || q <= todayUTC(now))) return q;
   return todayUTC(now);
 }
+
+/** The first day of Predictle: day #1. (Set to the real launch date when going live.) */
+export const LAUNCH_DAY = "2026-10-02";
+export const dayNumber = (date) => Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${LAUNCH_DAY}T00:00:00Z`)) / 864e5) + 1;
+export const addDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+/** Milliseconds until the next 00:00 UTC (when new puzzles appear). */
+export const msUntilNextDay = (now = Date.now()) => Math.ceil((now + 1) / 864e5) * 864e5 - now;

@@ -81,6 +81,25 @@
     .ranks li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
     .ranks li.you { font-weight: 700; }
     .dev { font-size: .85rem; } .dev a { color: var(--accent); margin-right: 6px; }
+    .head-meta { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: .95rem; }
+    #daynum { font-weight: 700; color: var(--ink); }
+    #countdown { font-variant-numeric: tabular-nums; }
+    .icon-btn { min-height: 36px; width: 36px; padding: 0; border-radius: 999px; font-weight: 700; }
+    .banner { background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; padding: 8px 12px; font-size: .92rem; }
+    .banner a, .archive a, .card a { color: var(--accent); }
+    .slot.bonus { color: #d6336c; }
+    .bonus-cta { background: var(--bg); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+    .bonus-cta p { margin: 0 0 10px; }
+    #side { max-width: 600px; margin: 0 auto; padding: 0 16px 24px; }
+    .board h4 { margin: 14px 0 0; font-size: .95rem; }
+    .small { font-size: .85rem; }
+    .days { list-style: none; padding: 0; margin: 6px 0 10px; }
+    .days li a { display: flex; justify-content: space-between; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--ink); }
+    .days li.current a { font-weight: 700; }
+    dialog { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 18px 20px; }
+    dialog::backdrop { background: rgba(10, 14, 25, .5); }
+    dialog h2 { margin-top: 0; }
+    dialog ul { padding-left: 1.2em; }
     footer { text-align: center; color: var(--muted); font-size: .85rem; padding-bottom: 24px; }
     footer a { color: inherit; }
   </style>
@@ -88,10 +107,24 @@
 <body>
   <header>
     <h1><a href="./">Predictle</a></h1>
-    <span id="date"></span>
+    <span class="head-meta"><span id="daynum"></span><span id="date"></span><span id="countdown"></span>
+      <button class="icon-btn" id="help-open" aria-label="How to play">?</button></span>
   </header>
   <div class="legend" id="legend" aria-label="Materials"></div>
   <main id="app"><p class="muted">Loading…</p></main>
+  <div id="side"></div>
+  <dialog id="help" aria-labelledby="help-title">
+    <h2 id="help-title">How to play</h2>
+    <ul>
+      <li><b>Two rounds a day</b>, easy then hard. Each contraption plays until just before the tricky part, then freezes.</li>
+      <li><b>Tap where A will come to rest.</b> Drag to adjust, then lock in and watch. <b>Skip ⏭</b> any time.</li>
+      <li><b>Score 0–100</b> for how close you were. 0 is only for the worst spot in the whole picture.</li>
+      <li><b>Bonus:</b> a laser fires into a box of mirrors. Tap the wall where it will hit.</li>
+      <li>Everyone gets the same puzzles, new at 00:00 UTC. Days get harder from Monday to Sunday. Replay any past day from the archive.</li>
+    </ul>
+    <p><b>Rules of this world:</b> sand stops anything that lands in it. Ice is slippery whatever touches it, rubber bounces whatever hits it, and steel is heavy. Fans push anything in their zone; conveyor belts carry things along; spinners never stop turning.</p>
+    <p><button class="primary" id="help-close">Got it</button></p>
+  </dialog>
   <footer>Part of <a href="https://biccyanzac-pixel.github.io/jacob.gg/">jacob.gg</a> daily games</footer>
   <script type="module" src="./js/game.js"></script>
 </body>

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Determinism check</title>
+<style>body{font:15px system-ui;margin:24px;background:#fff;color:#111}</style></head>
+<body>
+<p>Generates a day in this browser and prints the SHA-256 of its packed bytes. Compare with Node: <code>node tools/gen/hash-day.mjs DATE</code>.</p>
+<pre id="out">working…</pre>
+<script type="module">
+  import { buildDay } from "../js/gen/day.js";
+  import { packDay } from "../js/shared/codec.js";
+  const date = new URLSearchParams(location.search).get("date") || "2026-10-12";
+  const t0 = performance.now();
+  const { header, streams } = await buildDay(date);
+  const bytes = packDay(header, streams);
+  const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  window.result = { date, hash: digest, ms: Math.round(performance.now() - t0), bytes: bytes.length };
+  document.getElementById("out").textContent = JSON.stringify(window.result, null, 1);
+</script>
+</body></html>

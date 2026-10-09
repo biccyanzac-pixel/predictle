@@ -11,7 +11,9 @@ function materialPattern(ctx, name, px) {
   if (patternCache.has(key)) return patternCache.get(key);
   const m = MATERIALS[name];
   const s = Math.max(8, Math.round(px)); // tile size in device pixels
-  const c = new OffscreenCanvas(s, s), g = c.getContext("2d");
+  // OffscreenCanvas where available; a plain canvas otherwise (older Safari, some WebKit builds)
+  const c = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(s, s) : Object.assign(document.createElement("canvas"), { width: s, height: s });
+  const g = c.getContext("2d");
   g.fillStyle = m.colour;
   g.fillRect(0, 0, s, s);
   g.strokeStyle = m.ink;
