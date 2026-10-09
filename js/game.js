@@ -88,11 +88,12 @@ function buildLegend() {
 async function showIntro(day, state, save) {
   const ps = day.header.puzzles;
   app.replaceChildren(el("section", { class: "card intro" },
-    el("h2", {}, "Three contraptions. Predict, then watch."),
-    el("p", {}, "Each puzzle is frozen at the start. Make your prediction, then watch it play out. ",
-      "You score 0–100 for how close you were. Puzzles get harder through the week: Monday is the gentlest, Sunday the toughest."),
-    el("ol", { class: "plan" }, ps.map((p) => el("li", {}, el("b", {}, FORMAT_NAMES[p.format]), ` · ${p.slot}`))),
-    el("p", { class: "muted" }, "Rules of this world: ice is slippery whatever touches it, rubber bounces whatever hits it, steel is heavy. ",
+    el("h2", {}, "Three contraptions. Watch, freeze, predict."),
+    el("p", {}, "Each round plays until just before the tricky part, then freezes. ",
+      "Tap where A will come to rest, then watch what really happens. ",
+      "You score 0–100: the closer, the more. Rounds get harder through the day, and days get harder through the week (Monday gentlest, Sunday toughest)."),
+    el("ol", { class: "plan" }, ps.map((p, k) => el("li", {}, el("b", {}, `Round ${k + 1}`), ` · ${p.slot}`))),
+    el("p", { class: "muted" }, "Rules of this world: sand stops anything that lands in it. Ice is slippery whatever touches it, rubber bounces whatever hits it, steel is heavy. ",
       "Fans push anything inside their zone; conveyor belts carry things along."),
     el("button", { class: "primary big", onclick: () => playPuzzle(day, state, save, 0) }, "Start"),
     await devDayPicker(),
@@ -104,7 +105,8 @@ function playPuzzle(day, state, save, i) {
   const p = day.header.puzzles[i];
   const W = p.world.width, H = p.world.height;
   const mainK = p.bodies.findIndex((b) => b.role === "main");
-  const mainR = p.bodies[mainK].shapes[0].r;
+  const s0 = p.bodies[mainK].shapes[0];
+  const mainR = s0.t === "circle" ? s0.r : Math.max(s0.hw, s0.hh);
 
   // Which recording plays: "place" has one per choice.
   let rec = 0;
@@ -116,17 +118,22 @@ function playPuzzle(day, state, save, i) {
   });
 
   const canvas = el("canvas", { class: "view", "aria-label": "Physics contraption" });
+  // Skip: while watching the start, jump to the freeze; while watching the outcome, jump to the end.
+  const skipBtn = el("button", { class: "skip", hidden: true, onclick: () => {
+    if (phase === "predict") frame = freezeAt;
+    else frame = last();
+  } }, "Skip ⏭");
   const badge = el("div", { class: "slowmo", hidden: true }, "Slow motion");
   const prompt = el("p", { class: "question" }, p.question);
   const controls = el("div", { class: "controls" });
   const result = el("div", { class: "result", hidden: true });
   app.replaceChildren(el("section", { class: "puzzle" },
     el("div", { class: "puzzle-head" },
-      el("span", { class: "step" }, `${i + 1} of ${day.header.puzzles.length}`),
+      el("span", { class: "step" }, `Round ${i + 1} of ${day.header.puzzles.length}`),
       el("span", { class: `slot ${p.slot}` }, p.slot),
-      el("span", { class: "fmt" }, FORMAT_NAMES[p.format])),
+      p.format !== "freeze" ? el("span", { class: "fmt" }, FORMAT_NAMES[p.format]) : null),
     prompt,
-    el("div", { class: "stage" }, canvas, badge),
+    el("div", { class: "stage" }, canvas, badge, skipBtn),
     controls, result));
 
   const r = new Renderer(canvas, metaFor(p.format === "place" ? null : 0), day.motions[i][0]);
@@ -150,9 +157,10 @@ function playPuzzle(day, state, save, i) {
     if (playing) {
       const inSlow = slow && frame >= slow[0] && frame <= slow[1];
       badge.hidden = !inSlow;
+      skipBtn.hidden = false;
       frame += dt * p.fps * (inSlow ? 0.3 : 1);
-      if (phase === "predict" && frame >= freezeAt) { frame = freezeAt; playing = false; prompt.textContent = p.question; }
-      if (frame >= last()) { frame = last(); playing = false; badge.hidden = true; ended?.(); ended = null; }
+      if (phase === "predict" && frame >= freezeAt) { frame = freezeAt; playing = false; skipBtn.hidden = true; prompt.textContent = p.question; }
+      if (frame >= last()) { frame = last(); playing = false; badge.hidden = true; skipBtn.hidden = true; ended?.(); ended = null; }
     }
     r.draw(frame, wall);
     requestAnimationFrame(tick);
@@ -353,7 +361,7 @@ function playPuzzle(day, state, save, i) {
     switch (p.format) {
       case "stop": case "freeze": {
         const d = Math.hypot(guess.x - a.final.x, guess.y - a.final.y);
-        return `You were ${d.toFixed(2)} m from where it stopped (the world is ${W} m wide).`;
+        return `You were ${d.toFixed(2)} m from where it stopped. (0 points is the worst spot in the whole arena.)`;
       }
       case "height": return `It peaked ${a.peak.toFixed(2)} m up; you said ${guess.y.toFixed(2)} m.`;
       case "dominoes": return `${a.fallen} of ${a.total} fell; you said ${guess.n}.`;

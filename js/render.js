@@ -32,6 +32,8 @@ function materialPattern(ctx, name, px) {
     g.moveTo(-s / 2, s / 2); g.lineTo(s / 2, -s / 2);
     g.moveTo(s / 2, s * 1.5); g.lineTo(s * 1.5, s / 2);
     g.stroke();
+  } else if (m.pattern === "speckle") {
+    for (const [x, y] of [[0.2, 0.3], [0.65, 0.15], [0.45, 0.6], [0.85, 0.7], [0.15, 0.85]]) { g.fillRect(x * s, y * s, s / 10, s / 10); }
   } else if (m.pattern === "rivets") {
     g.globalAlpha = 0.55;
     g.strokeRect(0, 0, s, s);
@@ -236,7 +238,8 @@ export class Renderer {
         ctx.translate(p.x, p.y);
         ctx.scale(1, -1);
         ctx.fillStyle = "#fff";
-        ctx.font = `bold ${b.shapes[0].r * 1.1}px system-ui, sans-serif`;
+        const s0 = b.shapes[0], size = s0.t === "circle" ? s0.r * 1.1 : Math.min(s0.hw, s0.hh) * 1.5;
+        ctx.font = `bold ${size}px system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(b.label, 0, 0);

@@ -16,6 +16,9 @@ export const MATERIALS = {
   rubber: { id: 1, density: 1.2, friction: 0.9,  restitution: 0.85, rolling: 0.06, colour: "#e0457b", ink: "#8c1d45", pattern: "dots",    label: "Rubber", note: "bouncy" },
   ice:    { id: 2, density: 0.9, friction: 0.02, restitution: 0.05, rolling: 0.01, colour: "#9fd8f2", ink: "#3b8db5", pattern: "hatch",   label: "Ice",    note: "slippery" },
   steel:  { id: 3, density: 6.0, friction: 0.4,  restitution: 0.05, rolling: 0.02, colour: "#7d8794", ink: "#3a4049", pattern: "rivets",  label: "Steel",  note: "heavy" },
+  // Sand is a surface, never a moving piece: anything touching it stops dead
+  // (no bounce, full grip, heavy drag inside the pit). See SAND in simulate.mjs.
+  sand:   { id: 4, density: 1.5, friction: 1.0,  restitution: 0,    rolling: 0.5,  colour: "#ecd29c", ink: "#b08a45", pattern: "speckle", label: "Sand",   note: "stops things dead", surface: true },
 };
 
 export const MATERIAL_BY_ID = Object.values(MATERIALS).sort((a, b) => a.id - b.id);
