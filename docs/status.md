@@ -1,24 +1,28 @@
-# Status (9 Oct 2026): third version, playable locally, NOT pushed
+# Status: LIVE since 9 Oct 2026 (day #1)
+
+- **Game:** https://biccyanzac-pixel.github.io/predictle/, served from the `gh-pages` branch (a copy of `public/`).
+- **Hub:** https://biccyanzac-pixel.github.io/jacob.gg/ links to it.
+- **Leaderboard:** https://predictle-leaderboard.jacob-gg-leaderboard-worker.workers.dev (Cloudflare Worker + D1 `predictle-leaderboard`).
 
 Design: [game-design.md](game-design.md).
 
-## Play locally
+## Day files
+Days are pre-generated through 8 Oct 2027. Any later day is built in the player's browser, identical to what a file would hold. The leaderboard can only check scores on days that have a file, so top up before then:
 ```
-node tools/serve.mjs                 # http://localhost:8090/
-cd worker && npm run dev:local       # local leaderboards on :8798 (main + bonus)
+node tools/gen/make-days.mjs --from 2027-10-09 --days 365     # ~2-3 h on this laptop
+git add public/puzzles && git commit -m "More days" && git push
+git subtree split --prefix public -b gh-pages && git push -f origin gh-pages
 ```
-- **Ready-made days:** 2 Oct to 18 Oct 2026. The local test "launch day" is 2 Oct, so the archive has a week of past days.
-- **Any other date** (e.g. `?date=2026-10-25`) is built in your browser from the date. That takes about half a minute.
+**Never regenerate or edit a published day.** The leaderboard caches each day's answers. Generation is deterministic, so regenerating gives identical bytes unless the generator code has changed.
 
-## Before going live
-1. Set `LAUNCH_DAY` in `public/js/shared/daily.js` to the real launch date.
-2. Pre-generate ahead: `node tools/gen/make-days.mjs --from <launch> --days 730`. That's about 25 s per day of CPU on 7 threads, roughly 45 minutes for 2 years and 6.7 MB.
-3. Create the D1 database: `npx wrangler d1 create predictle-leaderboard`. Put the id in `worker/wrangler.toml`, then `npm run db:init && npm run deploy`.
-4. Set `leaderboardUrl` in `public/config.json`.
-5. Publish `public/` to GitHub Pages, and link the card on the jacob.gg hub.
+## Deploy
+- **Site:** `git subtree split --prefix public -b gh-pages && git push -f origin gh-pages`
+- **Worker:** `cd worker && npx wrangler deploy` (schema: `npm run db:init`)
+
+## Changing the generator, scoring or materials
+Any change to `public/js/gen/`, `public/js/sim/`, `shared/scoring.js`, `shared/materials.js` or `shared/dmath.js` changes FUTURE puzzles. Only regenerate days that haven't happened yet; past days must stay byte-identical.
 
 ## Open
-- **Leaderboard on days without a file.** The worker can't run the physics (Cloudflare's free tier allows 10 ms of CPU per request), so it can only score days that have a file. Pre-generating 2+ years covers that. Topping up later is one command, or a scheduled GitHub Action (adding that needs your browser login, because the saved token can't edit workflow files).
-- **Share links showing friends' guesses** are not built yet.
-- **Not tried on a real iPhone.** WebKit (Safari's engine) passes the full playthrough here.
-- **Answers are inside the public day files.**
+- Share links that show friends' guesses on your replay.
+- Not tried on a real iPhone. WebKit passes the full playthrough.
+- Answers are readable in the public day files.
