@@ -3,6 +3,7 @@
 // only deterministic maths (dmath.js): the generator runs in browsers too.
 // Changing a constant here changes scores for every day: flag it to the owner first.
 import { hypot, powi } from "./dmath.js";
+import { scoreAim } from "./optics.js";
 
 /** Score curve: 100 * (1 - miss / worstPossibleMiss)^POWER.
  *  0 only for the worst possible guess; near misses still score well, far ones little.
@@ -55,6 +56,7 @@ const finite = (x) => typeof x === "number" && Number.isFinite(x);
 
 /** Score one puzzle. `puzzle` is a day-file puzzle header, `guess` the player's answer. */
 export function scorePuzzle(puzzle, guess) {
+  if (puzzle.format === "aim") return guess && finite(guess.a) ? scoreAim(puzzle, guess.a) : 0;
   if (!guess || !finite(guess.x) || !finite(guess.y)) return 0;
   if (puzzle.format === "freeze") return scoreDistance(guess, puzzle.answer.final, puzzle.world);
   if (puzzle.format === "laser") return scoreWall(guess, puzzle.answer.hit, puzzle.world);

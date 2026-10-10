@@ -7,6 +7,8 @@ import { scorePuzzle, points, emoji, perimeterPos, perimeterPoint } from "./shar
 import { hypot } from "./shared/dmath.js";
 import { Renderer } from "./render.js";
 import { drawLaser, beamLength } from "./laser-draw.js";
+import { drawAim } from "./optics-draw.js";
+import { traceBeam, pathLength, TARGET_R } from "./shared/optics.js";
 import * as api from "./api.js";
 import { todayUTC, pickDate, weekdayOf, dayFile, dayNumber, addDays, LAUNCH_DAY, msUntilNextDay } from "./shared/daily.js";
 
@@ -314,7 +316,11 @@ function showBonus() {
   card.hidden = false;
   if (!mainDone()) { area.replaceChildren(el("p", { class: "bonus-locked" }, "🔒 Unlocks once you've finished both rounds.")); return; }
   if (bonusDone()) { bonusDoneView(); return; }
-  area.replaceChildren(el("button", { class: "submit", style: "width: 100%", onclick: () => playLaser() }, "Fire the laser"));
+  const aim = day.header.puzzles[2].format === "aim";
+  $(".bonus-note").textContent = aim
+    ? "Aim the laser so its beam passes through the target. Mirrors (and mirrored bits of wall) reflect, glass bends light, dark blocks and plain walls absorb it. You see the first half of the beam before you fire."
+    : "A laser fires into a box of mirrors. Every mirror reflects on both sides; dark blocks absorb the beam. Tap the wall where it will hit.";
+  area.replaceChildren(el("button", { class: "submit", style: "width: 100%", onclick: () => (aim ? playAim() : playLaser()) }, aim ? "Aim the laser" : "Fire the laser"));
 }
 
 function bonusDoneView() {
@@ -375,6 +381,73 @@ function playLaser() {
     controls.replaceChildren();
     roundResult(result, score, `${p.answer.bounces} reflections · ${miss.toFixed(2)} m away along the wall`, [
       el("button", { class: "ghost", onclick: () => { shown = STUB; } }, "Fire again"),
+      el("button", { class: "submit", onclick: () => { bonusDoneView(); if (mainDone()) showDailyScore(); } }, "Done"),
+    ]);
+  }
+}
+
+// ---------------------------------------------------------------- the aim-the-laser bonus
+function playAim() {
+  const p = day.header.puzzles[2];
+  const { canvas, skip, controls, result } = makeStage($("#bonus-area"), "bonus", "bonus", "Laser", p.question);
+  const r = new Renderer(canvas, { world: p.world, fps: 30, frameCount: 1, keyFrame: null, statics: [], decor: [], bodies: [] }, { bodies: [] });
+  const e = p.emitter;
+  let aim = Math.atan2(p.target.y - e.y, p.target.x - e.x) + 0.6; // start somewhere that isn't the answer
+  let phase = "aim", tr = traceBeam(p, e, aim, p.target), shown = p.previewLength, prev = null, wall = 0, ended = null;
+  let locked = null; // { a, path, closestAt }
+  const total = () => pathLength(tr.path);
+  const retrace = () => { tr = traceBeam(p, e, aim, p.target); if (phase !== "fire") shown = phase === "aim" ? p.previewLength : Infinity; };
+  const deg = (a) => (((a * 180) / Math.PI) % 360 + 360) % 360;
+
+  skip.onclick = () => { shown = total(); };
+  function tick(now) {
+    if (!canvas.isConnected) return;
+    const dt = prev === null ? 0 : Math.min(0.1, (now - prev) / 1000);
+    prev = now; wall += dt;
+    if (phase === "fire") {
+      skip.hidden = false;
+      shown = Math.min(total(), shown + dt * Math.max(5, total() / 4));
+      if (shown >= total()) { skip.hidden = true; ended?.(); ended = null; }
+    }
+    r.draw(0, wall);
+    requestAnimationFrame(tick);
+  }
+  new ResizeObserver(() => r.resize()).observe(canvas);
+  requestAnimationFrame(tick);
+  r.overlay = (ctx, _f, t) => drawAim(ctx, p, {
+    px: 1 / r.scale, aim, path: tr.path, shown, time: t,
+    showRing: phase === "explore", guessPath: phase === "explore" ? locked?.path : null,
+    closestAt: phase === "done" || (phase === "explore" && locked) ? (phase === "explore" ? tr.closestAt : locked.closestAt) : null, done: phase !== "aim" && phase !== "fire",
+  });
+
+  const readout = el("span", { class: "readout" });
+  const showAngle = () => { readout.textContent = phase === "explore"
+    ? `Exploring: ${deg(aim).toFixed(1)}° ${tr.closest <= TARGET_R ? "hits ✓" : `misses by ${(tr.closest - TARGET_R).toFixed(2)} m`}. Green on the ring = aims that hit.`
+    : `Aim: ${deg(aim).toFixed(1)}°. Drag on the picture to aim; you see the first half of the beam.`; };
+  const nudge = (d) => { if (phase === "aim" || phase === "explore") { aim += (d * Math.PI) / 180; retrace(); showAngle(); } };
+  const lockBtn = el("button", { class: "submit", onclick: () => lockIn() }, "Fire");
+  controls.append(readout, el("button", { class: "ghost", onclick: () => nudge(-0.1) }, "◀ 0.1°"), el("button", { class: "ghost", onclick: () => nudge(0.1) }, "0.1° ▶"), lockBtn);
+  showAngle();
+  tapInput(canvas, r, () => phase === "aim" || phase === "explore", (w) => {
+    if (Math.hypot(w.x - e.x, w.y - e.y) < 0.05) return;
+    aim = Math.atan2(w.y - e.y, w.x - e.x);
+    retrace(); showAngle();
+  });
+
+  async function lockIn() {
+    if (phase !== "aim") return;
+    phase = "fire"; shown = p.previewLength;
+    controls.replaceChildren(el("span", { class: "readout" }, "Firing…"));
+    await new Promise((res) => (ended = res));
+    phase = "done";
+    const score = scorePuzzle(p, { a: aim });
+    locked = { a: aim, path: tr.path, closestAt: tr.closestAt };
+    state.guesses[2] = { a: aim }; state.scores[2] = score; save();
+    submitBoard("bonus");
+    const text = tr.closest <= TARGET_R ? "a direct hit!" : `closest the beam got: ${(tr.closest - TARGET_R).toFixed(2)} m from the target`;
+    controls.replaceChildren();
+    roundResult(result, score, text, [
+      el("button", { class: "ghost", onclick: () => { phase = "explore"; retrace(); showAngle(); controls.replaceChildren(readout, el("button", { class: "ghost", onclick: () => nudge(-0.1) }, "◀ 0.1°"), el("button", { class: "ghost", onclick: () => nudge(0.1) }, "0.1° ▶"), el("button", { class: "submit", onclick: () => { bonusDoneView(); if (mainDone()) showDailyScore(); } }, "Done")); } }, "Explore other aims"),
       el("button", { class: "submit", onclick: () => { bonusDoneView(); if (mainDone()) showDailyScore(); } }, "Done"),
     ]);
   }

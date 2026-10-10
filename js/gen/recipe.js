@@ -30,6 +30,7 @@ export function bounds(c) {
     case "pendulum": return pad(c.px - c.r - 0.1, c.py - c.len - c.r, c.px + c.r + 0.1, c.py + 0.1);
     case "dominoes": return pad(c.x0 - c.w, c.y, dominoX(c, c.n - 1) + c.w, c.y + c.h);
     case "fan": case "lowgrav": return null; // zones may overlap things
+    case "pegs": return pad(c.x1 - c.r, c.y2 - (c.rows - 1) * c.sy - c.r, c.x2 + c.sx / 2 + c.r, c.y2 + c.r);
     case "spinner": return pad(c.x - c.arm, c.y - c.arm, c.x + c.arm, c.y + c.arm, 0.05);
     case "funnel": return pad(c.x - c.gap / 2 - c.w, c.y - 0.06, c.x + c.gap / 2 + c.w, c.y + c.h + 0.06);
     case "ball": return pad(c.x - c.r, c.y - c.r, c.x + c.r, c.y + c.r);
@@ -58,7 +59,7 @@ export async function mainPath(scene, seconds = 7) {
 
 export const MIDDLE = {
   ramp: 5, curve: 2, bumper: 3, seesaw: 2, spring: 2, conveyor: 2, fan: 1.5, pendulum: 1.5,
-  shelf: 3, spinner: 1.5, funnel: 1.2, lowgrav: 1.5,
+  shelf: 2, spinner: 1.5, funnel: 1.2, lowgrav: 1.5, pegs: 5,
 };
 
 /** One middle piece of `type` placed so the ball at path point P is likely to hit it. */
@@ -67,8 +68,10 @@ export function piece(rng, type, P, r, W, H) {
   const below = P.y - r;
   switch (type) {
     case "ramp": {
-      const L = rng.float(1.4, 3.2), th = rng.float(0.15, 0.55);
-      const d = rng.chance(0.65) ? towardCentre : rng.sign(); // descends towards +d
+      // switchbacks: usually slope back against the ball's motion, so it zig-zags down slowly
+      const L = rng.float(1.6, 3.4), th = rng.float(0.12, 0.42);
+      const back = P.vx > 0.2 ? -1 : P.vx < -0.2 ? 1 : towardCentre;
+      const d = rng.chance(0.6) ? back : rng.chance(0.65) ? towardCentre : rng.sign(); // descends towards +d
       const f = rng.float(0.15, 0.5);
       const qx = P.x, qy = below - 0.08;
       const x1 = qx - d * f * L * cos(th), y1 = qy + f * L * sin(th);
@@ -120,6 +123,13 @@ export function piece(rng, type, P, r, W, H) {
     case "funnel": {
       const gap = 2 * r + rng.float(0.15, 0.45), w = rng.float(0.7, 1.4), h = rng.float(0.4, 0.9);
       return { type, x: P.x + rng.float(-0.5, 0.5), y: below - h - 0.15, gap, w, h, material: rng.weighted({ wood: 3, ice: 1, steel: 1 }) };
+    }
+    case "pegs": {
+      // spacing always leaves the ball room to pass between pegs
+      const pr = rng.float(0.05, 0.09), sx = Math.max(2 * r + 2 * pr + 0.16, rng.float(0.5, 0.8));
+      const cols = rng.int(4, 7), rows = rng.int(3, 6), w = (cols - 1) * sx;
+      const x1 = P.x - w * rng.float(0.3, 0.7);
+      return { type, x1, x2: x1 + w, y2: P.y - r - pr - 0.25, rows, sx, sy: sx * 0.87, r: pr, material: rng.weighted({ wood: 3, rubber: 2, steel: 2 }) };
     }
     case "lowgrav": {
       const w = rng.float(1.6, 3.2), h = rng.float(2, 4);

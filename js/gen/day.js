@@ -3,10 +3,23 @@
 // file, so both produce exactly the same header and motion bytes.
 import { generateRound, SLOTS } from "./daily.js";
 import { generateLaser } from "./laser.js";
+import { generateAim } from "./aim.js";
+
+// Generator versions. Days before V2 were made by the first live generator; their files
+// are the only copy (they never change). From V2 on: pachinko rounds + aim-the-laser bonus.
+export const V2_START = "2026-10-11";
 import { encodeMotion } from "../shared/codec.js";
 
 const r3 = (x) => (typeof x === "number" ? Math.round(x * 1000) / 1000 : x);
 const round3 = (o) => JSON.parse(JSON.stringify(o, (_, v) => r3(v)));
+
+/** The day's bonus puzzle, exactly as stored in its file. */
+export function bonusFor(date) {
+  const bonus = date >= V2_START ? generateAim(date) : generateLaser(date);
+  // the aim sweep is stored as whole centimetres already: keep it exact
+  const { sweep, ...rest } = bonus.puzzle;
+  return { ...round3({ id: bonus.seed, slot: "bonus", ...rest }), ...(sweep ? { sweep } : {}) };
+}
 
 /** { header, streams }: streams[i] = motion bytes for header.puzzles[i].recordings, in order. */
 export async function buildDay(date, { onProgress } = {}) {
@@ -26,7 +39,6 @@ export async function buildDay(date, { onProgress } = {}) {
     streams.push(motion);
   }
   onProgress?.(SLOTS.length, 0);
-  const laser = generateLaser(date);
-  puzzles.push(round3({ id: laser.seed, slot: "bonus", ...laser.puzzle }));
+  puzzles.push(bonusFor(date));
   return { header: { v: 3, date, puzzles }, streams };
 }
