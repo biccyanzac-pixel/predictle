@@ -49,12 +49,16 @@ const save = () => {
   h[date] = { main: mainDone() ? mainTotal() : null, bonus: bonusDone() ? state.scores[2] : null };
   store.set("predictle:history", h);
 };
-const playerName = () => store.get("predictle:name", "");
+// this game's name, else the one used in any other jacob.gg game (kit/jgg.js)
+const playerName = () => store.get("predictle:name", "") || window.JGG?.name() || "";
+let changingName = false;
 
 // ---------------------------------------------------------------- header
 $("#daynum").textContent = `Daily #${dayNumber(date)}`;
 if (isArchive) {
   $("#challenge-label").replaceChildren(`Archive · ${prettyDate(date)} `, el("span", { class: "late-badge" }, "played late"));
+} else if (window.JGG) {
+  $("#challenge-label").replaceChildren(JGG.levelChip(date));
 }
 function tickCountdown() {
   if (todayUTC() !== today) { $("#countdown").replaceChildren(el("a", { href: "./" }, "new puzzles ready — refresh")); return; }
@@ -135,13 +139,15 @@ function showStart() {
     const n = nameInput.value.replace(/\s+/g, " ").trim();
     if (!n) { err.textContent = "Pick a name for the leaderboard first."; err.hidden = false; nameInput.focus(); return; }
     store.set("predictle:name", n);
+    window.JGG?.setName(n);
+    changingName = false;
     state.started = true; save();
     playRound(state.scores[0] == null ? 0 : 1);
   } }, "Start round 1 of 2");
-  const known = playerName();
+  const known = changingName ? "" : playerName();
   mainArea.replaceChildren(el("div", { class: "play" },
     known
-      ? el("p", { class: "playing-as" }, `Playing as ${known} · `, el("a", { href: "#", onclick: (e) => { e.preventDefault(); store.set("predictle:name", ""); showStart(); } }, "change"))
+      ? el("p", { class: "playing-as" }, `Playing as ${known} · `, el("button", { type: "button", class: "jgg-change", onclick: () => { changingName = true; showStart(); } }, "change"))
       : el("label", { class: "field" }, el("span", { class: "label" }, "Your name"), nameInput),
     err, start,
     el("p", { class: "fineprint" }, `${["Monday: the gentlest day of the week", "Tuesday: still gentle", "Wednesday: a bit trickier", "Thursday: midweek", "Friday: getting tough", "Saturday: tough", "Sunday: the toughest day of the week"][weekdayOf(date)]}. One go per day.`)));
@@ -307,7 +313,9 @@ function showDailyScore() {
     el("pre", { class: "share" }, shareText()),
     el("div", { class: "controls" }, copy),
     el("p", { class: "fineprint", style: "margin-top: .9rem" }, isArchive ? "Archive play: counted on that day's late board only." : `Streak: ${st} day${st === 1 ? "" : "s"}. Come back tomorrow for new contraptions.`),
-    bonusDone() ? null : el("button", { class: "play-bonus-button", onclick: () => $("#bonus").scrollIntoView({ behavior: "smooth" }) }, "🎁 Play the bonus round →")));
+    bonusDone() ? null : el("button", { class: "play-bonus-button", onclick: () => $("#bonus").scrollIntoView({ behavior: "smooth" }) }, "🎁 Play the bonus round →"),
+    el("div", { id: "rate" })));
+  window.JGG?.rate({ game: "predictle", day: date, mount: $("#rate") });
 }
 
 // ---------------------------------------------------------------- the laser bonus
