@@ -20,11 +20,11 @@ import { scoreDistance } from "../shared/scoring.js";
 import { weekdayOf } from "../shared/daily.js";
 
 export const SLOTS = ["easy", "hard"];
-export const MAX_SECONDS = 34;      // simulate at most this long
-export const MAX_SETTLE = 30;       // the tracked object must be at rest by then (skip exists)
+export const MAX_SECONDS = 44;      // simulate at most this long
+export const MAX_SETTLE = 40;       // the tracked object must be at rest by then (skip exists)
 export const CHAOS_RUNS = 20;
 export const CHAOS_LIMIT = 0.04;    // max spread of the resting spot under nudges, as a share of arena width
-export const MAX_ATTEMPTS = 2000;
+export const MAX_ATTEMPTS = 6000;
 const TWISTY = new Set(["bumper", "seesaw", "spring", "conveyor", "fan", "pendulum", "spinner", "ball", "block", "lowgrav"]);
 const ZONES = new Set(["fan", "lowgrav"]);
 const FLOOR_Y = 0.16;
@@ -71,6 +71,12 @@ async function build(rng, level) {
     comps.push({ type: "ramp", x1: cuts[k], y1: FLOOR_Y + 0.03, x2: cuts[k + 1], y2: FLOOR_Y + 0.03, t: 0.06, material: rng.weighted({ wood: 3, ice: 2 }), frame: true });
   }
 
+  // Corner kick-outs (like the edges of a pachinko board): a ball reaching a side
+  // wall low down rolls back towards the middle instead of resting in the corner.
+  const kick = rng.float(0.9, 1.4);
+  comps.push({ type: "ramp", x1: 0.16, y1: kick + 0.3, x2: kick, y2: FLOOR_Y + 0.12, t: 0.12, material: "wood", frame: true });
+  comps.push({ type: "ramp", x1: W - 0.16, y1: kick + 0.3, x2: W - kick, y2: FLOOR_Y + 0.12, t: 0.12, material: "wood", frame: true });
+
   // The tracked object: usually a ball, sometimes a block.
   const material = rng.weighted({ wood: 4, steel: 3, rubber: 2, ice: 1 });
   const isBlock = rng.chance(0.22);
@@ -99,17 +105,18 @@ async function build(rng, level) {
     return !overlaps(b, bounds(main), 0.3);
   };
   const weights = Object.fromEntries(Object.entries(MIDDLE).map(([k, w]) => [k, TWISTY.has(k) || k === "shelf" ? w * lerp(0.5, 2, level) : w]));
-  weights.ledge = 1.2 * (1 - 0.6 * level); // a short sand tray in mid-air: somewhere off the floor to come to rest
+  // (no mid-air sand ledges any more: a ball stopping on one after 3 s made for dull rounds)
 
   // Middle pieces, placed on the object's actual path.
-  const nMiddle = Math.round(lerp(5, 9, level)) + rng.int(0, 2);
+  const nMiddle = Math.round(lerp(6, 10, level)) + rng.int(0, 2);
   let lastY = sy - 0.3;
   for (let k = 0; k < nMiddle; k++) {
-    const path = await mainPath(scene, 10);
+    const path = await mainPath(scene, 6);
     const P = path.find((p) => p.f > 3 && p.y < lastY - rng.float(0.3, 0.9) && p.y > 1.5 && p.vy < 0.5 && p.x > 0.5 && p.x < W - 0.5);
     if (!P) break;
     for (let attempt = 0; attempt < 6; attempt++) {
-      const type = rng.weighted(weights);
+      // pachinko: one of the first pieces is usually a peg field
+      const type = k === 1 && attempt === 0 && rng.chance(0.75) ? "pegs" : rng.weighted(weights);
       let made;
       if (type === "ledge") {
         // marked frame: it's a resting place, not a mechanism, so it's never "the tricky moment"
@@ -126,12 +133,20 @@ async function build(rng, level) {
 
   // Decoys: pieces placed anywhere free, not aimed at the path. Some get involved,
   // some don't; either way the picture doesn't give away which pieces matter.
-  const nDecoys = rng.int(2, Math.round(lerp(3, 6, level)));
+  // They stay clear of the path A actually takes, so they never catch it early.
+  const finalPath = await mainPath(scene, 12);
+  const clearOfPath = (c) => {
+    const b = bounds(c);
+    if (!b) return true;
+    return !finalPath.some((q) => q.x > b[0] - 0.6 && q.x < b[2] + 0.6 && q.y > b[1] - 0.6 && q.y < b[3] + 0.6);
+  };
+  const nDecoys = rng.int(4, Math.round(lerp(6, 10, level)));
+  const decoyWeights = { ...MIDDLE, pegs: 9, lowgrav: 0.5, fan: 0.5 };
   for (let k = 0; k < nDecoys; k++) {
     for (let attempt = 0; attempt < 8; attempt++) {
       const P = { x: rng.float(0.8, W - 0.8), y: rng.float(2, H - 1.5), vx: rng.float(-1, 1), vy: -1 };
-      const made = [].concat(piece(rng, rng.weighted(MIDDLE), P, r, W, H));
-      if (!made.every(fits)) continue;
+      const made = [].concat(piece(rng, rng.weighted(decoyWeights), P, r, W, H));
+      if (!made.every(fits) || !made.every(clearOfPath)) continue;
       comps.push(...made);
       break;
     }
@@ -139,6 +154,7 @@ async function build(rng, level) {
   return scene;
 }
 
+export { build as _build, check as _check };
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const mainOf = (scene) => scene.components.find((c) => c.role === "main");
 
@@ -152,7 +168,8 @@ async function check(scene, level) {
   const comps = scene.components, mainComp = comps.indexOf(mainOf(scene));
   const real = (i) => comps[i] && !comps[i].frame && comps[i].type !== "chute";
   const minTouched = 3 + Math.round(level);
-  if (run.touched.filter(real).length < minTouched) return { ok: false, reason: `touches fewer than ${minTouched} pieces` };
+  const touchedCount = run.touched.filter(real).reduce((n, i) => n + (comps[i].type === "pegs" ? 2 : 1), 0); // a peg field is many hits
+  if (touchedCount < minTouched) return { ok: false, reason: `touches fewer than ${minTouched} pieces` };
 
   // Freeze just before the tricky moment (the biggest kick from a real piece).
   const key = run.meta.keyFrame;
@@ -163,6 +180,10 @@ async function check(scene, level) {
 
   const final = run.outcome.final;
   if (final.x < 0.6 || final.x > W - 0.6) return { ok: false, reason: "ends against a wall" };
+  // Pachinko, not a shelf: A must make it most of the way down, and take its time doing it.
+  if (final.y > 0.3 * scene.world.height) return { ok: false, reason: "stops too high up" };
+  const minSeconds = lerp(6, 7.5, level);
+  if (run.meta.mainSettledSeconds < minSeconds) return { ok: false, reason: "over too quickly" };
 
   // What still happens after the freeze.
   const after = new Set(run.contacts.filter((c) => c.step > freezeFrame * 2 && (c.a === mainComp || c.b === mainComp))
@@ -235,9 +256,11 @@ async function check(scene, level) {
 
 /** Round `round` (0 easy, 1 hard) of `date`. Deterministic. */
 export async function generateRound(date, round, { onReject, onAttempt } = {}) {
-  const level = levelFor(date, round);
+  const base = levelFor(date, round);
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     onAttempt?.(attempt);
+    // If nothing passes after 2000 tries, ease off a little (still deterministic).
+    const level = attempt < 2000 ? base : Math.max(round ? 0.5 : 0, base - 0.1 * (1 + Math.floor((attempt - 2000) / 500)));
     const seed = `predictle:${date}:${round}:${attempt}`;
     const scene = await build(makeRng(seed), level);
     const r = await check(scene, level);

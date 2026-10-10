@@ -1,0 +1,45 @@
+# Nightly: make sure every day up to a year ahead has a puzzle file, then publish.
+# To switch on, copy this file to .github/workflows/nightly.yml (needs a GitHub login
+# with the "workflow" permission, e.g. paste it in via the GitHub website).
+name: Nightly puzzles
+
+on:
+  schedule:
+    - cron: "10 0 * * *"   # 00:10 UTC every night
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Generate missing days (each day depends only on its date)
+        run: node tools/gen/make-days.mjs --missing-ahead 366
+      - name: Test
+        run: npm test
+      - name: Commit and publish
+        run: |
+          if git status --porcelain public/puzzles | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add public/puzzles
+            git commit -m "Nightly: new puzzle days"
+            git push origin main
+            git subtree split --prefix public -b gh-pages
+            git push -f origin gh-pages
+          else
+            echo "Nothing new"
+          fi

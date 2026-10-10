@@ -29,6 +29,7 @@
 //   spinner   {x,y,arm,arms,speed,material?}           paddles turning at constant speed (rad/s, + = anticlockwise)
 //   funnel    {x,y,gap,w,h,material?}                  V of two ramps; (x,y) = centre of the gap at the bottom
 //   lowgrav   {x1,y1,x2,y2,g}                          zone where gravity is g times normal (0 < g < 1)
+//   pegs      {x1,x2,y2,rows,sx,sy,r,material?}        pachinko pegs: rows from y2 downwards, staggered
 //
 // Any component may carry frame: true (walls/floor: not counted as "touched") and
 // floor: true (the floor, for "when does it hit the floor" questions).
@@ -319,6 +320,17 @@ class Sim {
     const m = c.material ?? "wood", t = 0.12;
     this.staticBar(i, c.x - c.gap / 2 - c.w, c.y + c.h, c.x - c.gap / 2, c.y, t, m);
     this.staticBar(i, c.x + c.gap / 2, c.y, c.x + c.gap / 2 + c.w, c.y + c.h, t, m);
+  }
+
+  // Peg field (pachinko): staggered rows of small static pegs filling a box.
+  make_pegs(c, i) {
+    const m = c.material ?? "wood";
+    for (let k = 0; k < c.rows; k++) {
+      const y = c.y2 - k * c.sy, shift = k % 2 ? c.sx / 2 : 0;
+      for (let x = c.x1 + shift; x <= c.x2 + 1e-9; x += c.sx) {
+        this.statics.push({ ...this.addCircle(this.ground, i, m, c.r, x, y), comp: i });
+      }
+    }
   }
 
   // Low-gravity zone: inside it, gravity is c.g times normal (an upward push of

@@ -1,8 +1,24 @@
-# Game design (third version, 9 Oct 2026)
+# Game design (live; generator v2 from 11 Oct 2026)
 
 ## A day
-1. **Round 1 (easy)** and **Round 2 (hard)**, both freeze frame. You watch the start, it freezes just before the tricky moment (0.4 s before A's biggest kick from a real piece), and you tap where **A** will come to rest. A is usually a ball, sometimes a block. Then you watch, with slow motion at the tricky moment. **Skip ⏭** works at any point.
-2. **Bonus: the laser.** It unlocks after both rounds. A laser fires into a box of mirrors (flat, round, curved and triangular, all reflecting on both sides). You tap the wall where the beam will hit; your tap snaps to the nearest wall. The beam is then drawn bounce by bounce. It has its own leaderboard.
+1. **Round 1 (easy)** and **Round 2 (hard)**, both freeze frame, pachinko-style.
+   - **How it plays:** you watch the start, and it freezes just before the tricky moment. You tap where **A** will come to rest, then watch the rest, with slow motion at the tricky moment. **Skip ⏭** works at any point.
+   - **The board:** peg fields, switchback ramps, springs, spinners, low-gravity zones and so on, plus decoys.
+   - **Run length:** A must make it most of the way down (finish in the bottom 30%) and take its time: at least 6 s on easy rounds and about 7.5 s on hard ones. Rounds can run up to 40 s.
+2. **Bonus: aim the laser** (from 11 Oct; 9–10 Oct keep the original "where does it hit the wall" laser).
+   - **The goal:** a target sits far from the emitter, usually behind dark blocks. You drag to aim (with 0.1° nudges) and can only see the first half of the beam: half the straight-line distance to the target. Then you fire.
+   - **The pieces:**
+     - mirrors: flat, V-shaped, triangle, square, round posts and curved arcs
+     - mirrored stretches of wall
+     - glass and lenses that bend light (index 1.33, 1.5 or 1.8, using Snell's law with total internal reflection)
+     - dark blocks and plain walls, which absorb the beam, so it always ends
+   - **Every puzzle passes these checks:**
+     - only 0.3–3% of all directions hit
+     - every hit needs at least 2 reflections or refractions
+     - there's at least one aimable window at least 0.5° wide
+     - aiming straight at the target scores 70 or less
+   - **After firing,** you can explore: a ring around the emitter shows green for directions that hit and red for ones that don't, and dragging traces the full beam.
+   - **Bonus score:** a hit (the beam passes within 0.28 m of the target's centre) is 100. Otherwise, take the share of all 2,880 possible aims (every 0.125°) that get *less* close to the target than yours. The score is 100 × share². So 0 is the worst possible aim, and beating 95% of aims scores 90. The leaderboard worker recomputes it from your aim angle.
 
 ## Generated from the date, identical everywhere
 Every puzzle is a function of the date: `round = f(date, round)` and `laser = f(date)`. For attempt 0, 1, 2, …, a design is built from the seed `predictle:<date>:<round>:<attempt>`, and **the first one that passes every check is the puzzle**. Nothing is curated.
@@ -12,6 +28,8 @@ Every puzzle is a function of the date: `round = f(date, round)` and `laser = f(
 Verified by generating the same days in Node, Edge (Chromium), Firefox and WebKit (Safari's engine). All four produce byte-identical results (same SHA-256). To re-check:
 - `node tools/gen/hash-day.mjs DATE` for Node
 - `/dev/determinism.html?date=DATE` in any browser
+
+**Nightly job (`tools/github/nightly.yml`):** at 00:10 UTC every night, GitHub Actions makes any missing day up to a year ahead and republishes the site, so the files never run out. It's switched on by copying that file to `.github/workflows/`.
 
 **How the two paths fit together:**
 - **Normal path:** pre-generated day files (`public/puzzles/DATE.prd`), which load instantly.

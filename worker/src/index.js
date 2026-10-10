@@ -33,6 +33,7 @@ function validateName(raw) {
 function cleanGuess(g) {
   if (!g || typeof g !== 'object') return null;
   const n = (x) => (typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < 1000 ? Math.round(x * 1000) / 1000 : null);
+  if (g.a !== undefined) return typeof g.a === 'number' && Number.isFinite(g.a) && Math.abs(g.a) < 100 ? { a: g.a } : null; // laser aim (radians, kept exact)
   return n(g.x) === null || n(g.y) === null ? null : { x: n(g.x), y: n(g.y) };
 }
 

@@ -18,7 +18,18 @@ if (isMainThread && process.argv[1]?.endsWith("make-days.mjs")) {
   const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
   const from = arg("from", new Date().toISOString().slice(0, 10));
   const days = +arg("days", 7);
-  const dates = Array.from({ length: days }, (_, d) => new Date(Date.parse(`${from}T00:00:00Z`) + d * 864e5).toISOString().slice(0, 10));
+  // --missing-ahead N: only the days from today to today+N that have no file yet (nightly job)
+  const ahead = arg("missing-ahead", null);
+  let dates = Array.from({ length: days }, (_, d) => new Date(Date.parse(`${from}T00:00:00Z`) + d * 864e5).toISOString().slice(0, 10));
+  const list = arg("dates-file", null); // a file with one YYYY-MM-DD per line
+  if (list) dates = readFileSync(list, "utf8").split(/\s+/).filter(Boolean);
+  if (ahead !== null) {
+    const today = new Date().toISOString().slice(0, 10);
+    dates = Array.from({ length: +ahead + 1 }, (_, d) => new Date(Date.parse(`${today}T00:00:00Z`) + d * 864e5).toISOString().slice(0, 10))
+      .filter((d) => !existsSync(new URL(`../../public/puzzles/${d}.prd`, import.meta.url)));
+    console.log(`${dates.length} missing day(s) up to ${ahead} days ahead`);
+    if (!dates.length) process.exit(0);
+  }
   const outDir = new URL("../../public/puzzles/", import.meta.url);
   mkdirSync(outDir, { recursive: true });
   const indexFile = new URL("index.json", outDir);
