@@ -49,8 +49,8 @@ const save = () => {
   h[date] = { main: mainDone() ? mainTotal() : null, bonus: bonusDone() ? state.scores[2] : null };
   store.set("predictle:history", h);
 };
-// this game's name, else the one used in any other jacob.gg game (kit/jgg.js)
-const playerName = () => store.get("predictle:name", "") || window.JGG?.name() || "";
+// the name shared by every jacob.gg game (kit/jgg.js), else this game's own
+const playerName = () => window.JGG?.name() || store.get("predictle:name", "") || "";
 let changingName = false;
 
 // ---------------------------------------------------------------- header
