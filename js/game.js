@@ -196,7 +196,7 @@ function showStart() {
   const known = changingName ? "" : playerName();
   swapIn(mainArea, [el("div", { class: "play" },
     known
-      ? el("p", { class: "playing-as" }, `Playing as ${known} · `, el("button", { type: "button", class: "jgg-change", onclick: () => { changingName = true; showStart(); } }, "change"))
+      ? el("p", { class: "playing-as" }, "Playing as", el("b", { class: "who", dir: "auto", title: known }, known), "·", el("button", { type: "button", class: "jgg-change", onclick: () => { changingName = true; showStart(); } }, "change"))
       : el("label", { class: "field" }, el("span", { class: "label" }, "Your name"), nameInput),
     err, start,
     el("p", { class: "fineprint" }, `${["Monday: the gentlest day of the week", "Tuesday: still gentle", "Wednesday: a bit trickier", "Thursday: midweek", "Friday: getting tough", "Saturday: tough", "Sunday: the toughest day of the week"][weekdayOf(date)]}. One go per day.`))]);
@@ -521,13 +521,13 @@ function rowsFor(board, scoreOf) {
   const ol = el("ol", { class: "rows" });
   const row = (r) => el("li", { class: `row${r.you ? " me" : ""}` },
     el("span", { class: "row-rank" }, String(r.rank)),
-    el("span", { class: "row-name" }, r.name),
+    el("span", { class: "row-name", dir: "auto", title: r.name }, r.name || "—"),
     el("span", { class: "row-score" }, scoreOf(r)));
   for (const r of board.top) ol.append(row(r));
   if (board.you) ol.append(row(board.you));
   return ol;
 }
-const mainScore = (r) => `${r.scores.map(emoji).join("")} ${points(r.total)}`;
+const mainScore = (r) => `${(r.scores ?? []).map(emoji).join("")} ${points(r.total)}`;
 
 async function submitBoard(board) {
   await api.ready;
