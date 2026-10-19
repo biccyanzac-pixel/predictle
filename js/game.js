@@ -133,7 +133,7 @@ function showMain() {
 }
 
 function showStart() {
-  const nameInput = el("input", { id: "name", type: "text", maxlength: 20, autocomplete: "nickname", placeholder: "e.g. jacob", value: playerName() });
+  const nameInput = el("input", { id: "name", type: "text", maxlength: 20, autocomplete: "nickname", autocapitalize: "none", autocorrect: "off", placeholder: "e.g. jacob", value: playerName() });
   const err = el("p", { class: "error", hidden: true });
   const start = el("button", { class: "submit", onclick: () => {
     const n = nameInput.value.replace(/\s+/g, " ").trim();
@@ -216,7 +216,7 @@ function playRound(i) {
       badge.hidden = !inSlow;
       skip.hidden = false;
       frame += dt * p.fps * (inSlow ? 0.3 : 1);
-      if (phase === "watch" && frame >= freezeAt) { frame = freezeAt; playing = false; skip.hidden = true; phase = "predict"; prompt.textContent = p.question; showInput(); }
+      if (phase === "watch" && frame >= freezeAt) { frame = freezeAt; playing = false; skip.hidden = true; phase = "predict"; canvas.classList.add("takes-input"); prompt.textContent = p.question; showInput(); }
       if (phase !== "watch" && frame >= last) { frame = last; playing = false; badge.hidden = true; skip.hidden = true; ended?.(); ended = null; }
     }
     r.draw(frame, wall);
@@ -258,7 +258,7 @@ function playRound(i) {
   const lockBtn = el("button", { class: "submit", disabled: true, onclick: () => lockIn() }, "Lock in");
   const readout = el("span", { class: "readout" }, "Tap where it will come to rest.");
   const clearBtn = el("button", { class: "ghost", onclick: () => { guess = null; lockBtn.disabled = true; readout.textContent = "Tap where it will come to rest."; } }, "Clear");
-  const again = el("button", { class: "ghost", onclick: () => { if (phase === "predict") { phase = "watch"; prompt.textContent = "Watch the start…"; controls.replaceChildren(); playFrom(0, false); } } }, "Watch again");
+  const again = el("button", { class: "ghost", onclick: () => { if (phase === "predict") { phase = "watch"; canvas.classList.remove("takes-input"); prompt.textContent = "Watch the start…"; controls.replaceChildren(); playFrom(0, false); } } }, "Watch again");
   function showInput() { controls.replaceChildren(readout, again, clearBtn, lockBtn); }
   tapInput(canvas, r, () => phase === "predict", (w) => {
     guess = { x: Math.min(W - 0.2, Math.max(0.2, w.x)), y: Math.min(H - 0.2, Math.max(0.2, w.y)) };
@@ -267,7 +267,7 @@ function playRound(i) {
 
   async function lockIn() {
     if (!guess || phase !== "predict") return;
-    phase = "play";
+    phase = "play"; canvas.classList.remove("takes-input");
     controls.replaceChildren(el("span", { class: "readout" }, "Watch…"));
     await playFrom(freezeAt);
     phase = "done";
@@ -348,6 +348,7 @@ function playLaser() {
   const total = beamLength(p.answer.path);
   const STUB = 0.7; // how much beam you see before you guess
   let phase = "predict", shown = STUB, guess = null, prev = null, wall = 0, ended = null;
+  canvas.classList.add("takes-input");
   const speed = Math.max(4, total / 5); // m/s: the whole beam in at most ~5 s
 
   skip.onclick = () => { shown = total; };
@@ -377,7 +378,7 @@ function playLaser() {
 
   async function lockIn() {
     if (!guess || phase !== "predict") return;
-    phase = "play";
+    phase = "play"; canvas.classList.remove("takes-input");
     controls.replaceChildren(el("span", { class: "readout" }, "Firing…"));
     await new Promise((res) => (ended = res));
     phase = "done";
@@ -403,6 +404,7 @@ function playAim() {
   let aim = Math.atan2(p.target.y - e.y, p.target.x - e.x) + 0.6; // start somewhere that isn't the answer
   let phase = "aim", tr = traceBeam(p, e, aim, p.target), shown = p.previewLength, prev = null, wall = 0, ended = null;
   let locked = null; // { a, path, closestAt }
+  canvas.classList.add("takes-input");
   const total = () => pathLength(tr.path);
   const retrace = () => { tr = traceBeam(p, e, aim, p.target); if (phase !== "fire") shown = phase === "aim" ? p.previewLength : Infinity; };
   const deg = (a) => (((a * 180) / Math.PI) % 360 + 360) % 360;
@@ -444,7 +446,7 @@ function playAim() {
 
   async function lockIn() {
     if (phase !== "aim") return;
-    phase = "fire"; shown = p.previewLength;
+    phase = "fire"; canvas.classList.remove("takes-input"); shown = p.previewLength;
     controls.replaceChildren(el("span", { class: "readout" }, "Firing…"));
     await new Promise((res) => (ended = res));
     phase = "done";
@@ -455,7 +457,7 @@ function playAim() {
     const text = tr.closest <= TARGET_R ? "a direct hit!" : `closest the beam got: ${(tr.closest - TARGET_R).toFixed(2)} m from the target`;
     controls.replaceChildren();
     roundResult(result, score, text, [
-      el("button", { class: "ghost", onclick: () => { phase = "explore"; retrace(); showAngle(); controls.replaceChildren(readout, el("button", { class: "ghost", onclick: () => nudge(-0.1) }, "◀ 0.1°"), el("button", { class: "ghost", onclick: () => nudge(0.1) }, "0.1° ▶"), el("button", { class: "submit", onclick: () => { bonusDoneView(); if (mainDone()) showDailyScore(); } }, "Done")); } }, "Explore other aims"),
+      el("button", { class: "ghost", onclick: () => { phase = "explore"; canvas.classList.add("takes-input"); retrace(); showAngle(); controls.replaceChildren(readout, el("button", { class: "ghost", onclick: () => nudge(-0.1) }, "◀ 0.1°"), el("button", { class: "ghost", onclick: () => nudge(0.1) }, "0.1° ▶"), el("button", { class: "submit", onclick: () => { bonusDoneView(); if (mainDone()) showDailyScore(); } }, "Done")); } }, "Explore other aims"),
       el("button", { class: "submit", onclick: () => { bonusDoneView(); if (mainDone()) showDailyScore(); } }, "Done"),
     ]);
   }
