@@ -199,7 +199,7 @@ function showStart() {
       ? el("p", { class: "playing-as" }, "Playing as", el("b", { class: "who", dir: "auto", title: known }, known), "·", el("button", { type: "button", class: "jgg-change", onclick: () => { changingName = true; showStart(); } }, "change"))
       : el("label", { class: "field" }, el("span", { class: "label" }, "Your name"), nameInput),
     err, start,
-    el("p", { class: "fineprint" }, `${["Monday: the gentlest day of the week", "Tuesday: still gentle", "Wednesday: a bit trickier", "Thursday: midweek", "Friday: getting tough", "Saturday: tough", "Sunday: the toughest day of the week"][weekdayOf(date)]}. One go per day.`))]);
+    el("p", { class: "fineprint" }, `${["Monday: the gentlest day of the week", "Tuesday: still gentle", "Wednesday: a bit trickier", "Thursday: midweek", "Friday: getting tough", "Saturday: tough", "Sunday: the toughest day of the week"][weekdayOf(date)]}. One go per day.`))], !changingName); // editing the name swaps one line, so the card stays still
 }
 
 // a stage (canvas, slow-mo badge, skip button) inside a container
@@ -306,7 +306,12 @@ function playRound(i) {
       ctx.strokeStyle = ANSWER; ctx.lineWidth = 4 * px; ctx.globalAlpha = e;
       ctx.beginPath(); ctx.arc(fin.x, fin.y, (mainR + 0.1) * (0.9 + 0.1 * e), 0, 7); ctx.stroke();
       ctx.globalAlpha = 1;
-      if (guess && k >= 1) { ctx.setLineDash([4 * px, 4 * px]); ctx.beginPath(); ctx.moveTo(guess.x, guess.y); ctx.lineTo(fin.x, fin.y); ctx.stroke(); ctx.setLineDash([]); }
+      // the line fades in as the ring settles (the last 15% of its ease), not after a visible pause
+      if (guess && e > 0.85) {
+        ctx.globalAlpha = Math.min(1, (e - 0.85) / 0.15);
+        ctx.setLineDash([4 * px, 4 * px]); ctx.beginPath(); ctx.moveTo(guess.x, guess.y); ctx.lineTo(fin.x, fin.y); ctx.stroke(); ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
     }
   };
 
