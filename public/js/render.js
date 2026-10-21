@@ -4,6 +4,10 @@ import { MATERIALS, MATERIAL_BY_ID } from "./shared/materials.js";
 import { poseAt } from "./shared/codec.js";
 
 const patternCache = new Map();
+const FIXED = new Set(["fulcrum", "pivot", "buckets"]);
+// Under reduce motion the time-driven decor (fan arrows, bubbles, belt chevrons, laser and target pulses, the
+// predict ring) holds a steady state: still drawn, not moving.
+const still = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
 
 // Each material: a fill colour plus a pattern, so they differ without colour vision.
 function materialPattern(ctx, name, px) {
@@ -59,9 +63,12 @@ export class Renderer {
   // Fit the 3:4 world into the canvas's CSS box, letterboxed, at device resolution.
   resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    const r = this.canvas.getBoundingClientRect();
-    this.canvas.width = Math.round(r.width * dpr);
-    this.canvas.height = Math.round(r.height * dpr);
+    const c = this.canvas, r = c.getBoundingClientRect();
+    // layout size, not the transformed one, if an entrance animation is scaling the card right now
+    const w = Math.abs(r.width - c.offsetWidth) > 1 ? c.offsetWidth : r.width, h = Math.abs(r.height - c.offsetHeight) > 1 ? c.offsetHeight : r.height;
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+    this.bg = this.layer = null;
     const { width: W, height: H } = this.meta.world;
     this.scale = Math.min(this.canvas.width / W, this.canvas.height / H);
     this.ox = (this.canvas.width - W * this.scale) / 2;
@@ -225,20 +232,34 @@ export class Renderer {
   draw(frame, time) {
     if (!this.scale) this.resize();
     const { ctx, meta, motion } = this;
+    // theme colours, read once (cleared on resize and on a colour-scheme change), not twice a frame
+    if (!this.bg) { const cs = getComputedStyle(this.canvas); this.bg = [cs.getPropertyValue("--letterbox") || "#000", cs.getPropertyValue("--sky") || "#fff"]; }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = getComputedStyle(this.canvas).getPropertyValue("--letterbox") || "#000";
+    ctx.fillStyle = this.bg[0];
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     this.enterWorld();
-    ctx.fillStyle = getComputedStyle(this.canvas).getPropertyValue("--sky") || "#fff";
+    ctx.fillStyle = this.bg[1];
     ctx.fillRect(0, 0, meta.world.width, meta.world.height);
+    if (still.matches) time = 0;
 
     for (const d of meta.decor) if (d.t === "fan" || d.t === "chute" || d.t === "lowgrav") this.drawDecor(d, time);
     for (const d of meta.decor) if (d.t === "spring") {
       const k = meta.bodies.findIndex((b) => b.comp === d.comp);
       this.drawSpringCoil(d, poseAt(motion.bodies[k], frame).y);
     }
-    for (const s of meta.statics) this.drawShape(s);
-    for (const d of meta.decor) if (d.t !== "fan" && d.t !== "chute" && d.t !== "lowgrav") this.drawDecor(d, time);
+    // the scenery that never moves, drawn once into a layer (remade on resize) instead of every frame
+    if (!this.layer) {
+      const c = this.layer = document.createElement("canvas");
+      c.width = this.canvas.width; c.height = this.canvas.height;
+      this.ctx = c.getContext("2d"); this.enterWorld();
+      for (const s of meta.statics) this.drawShape(s);
+      for (const d of meta.decor) if (FIXED.has(d.t)) this.drawDecor(d, 0);
+      this.ctx = ctx;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.layer, 0, 0);
+    this.enterWorld();
+    for (const d of meta.decor) if (d.t === "conveyor") this.drawDecor(d, time);
 
     meta.bodies.forEach((b, k) => {
       const p = poseAt(motion.bodies[k], frame);
